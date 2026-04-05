@@ -45,4 +45,5 @@ test("renders the main workbench title", async () => {
   render(<App />);
   expect(await screen.findByText("Move Suggestion Workbench")).toBeInTheDocument();
   expect(screen.getByText("Search Setup")).toBeInTheDocument();
+  expect(screen.getByText("Placement tool")).toBeInTheDocument();
 });

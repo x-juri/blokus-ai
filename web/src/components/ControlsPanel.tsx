@@ -1,5 +1,6 @@
-import type { BoardState, PlayerColor } from "../types/blokus";
+import { PieceMiniature } from "./PieceMiniature";
 import { playerColors } from "../constants/pieces";
+import type { BoardState, PlacementSelection, PlayerColor } from "../types/blokus";
 
 interface ControlsPanelProps {
   boardState: BoardState;
@@ -9,12 +10,15 @@ interface ControlsPanelProps {
   statusMessage: string;
   errorMessage: string;
   loading: boolean;
-  selectedPaintColor: PlayerColor | null;
+  selectedPlacement: PlacementSelection | null;
+  selectedPieceCells: [number, number][];
   onStateChange: (nextState: BoardState) => void;
   onTopKChange: (value: number) => void;
   onSimulationsChange: (value: number) => void;
   onCandidateLimitChange: (value: number) => void;
-  onPaintColorChange: (color: PlayerColor | null) => void;
+  onRotateSelection: () => void;
+  onFlipSelection: () => void;
+  onClearSelection: () => void;
   onSuggest: () => void;
   onReset: () => void;
   onPass: () => void;
@@ -28,12 +32,15 @@ export function ControlsPanel({
   statusMessage,
   errorMessage,
   loading,
-  selectedPaintColor,
+  selectedPlacement,
+  selectedPieceCells,
   onStateChange,
   onTopKChange,
   onSimulationsChange,
   onCandidateLimitChange,
-  onPaintColorChange,
+  onRotateSelection,
+  onFlipSelection,
+  onClearSelection,
   onSuggest,
   onReset,
   onPass
@@ -154,26 +161,42 @@ export function ControlsPanel({
         </label>
       </div>
 
-      <div className="brush-row">
-        <span className="brush-label">Board brush</span>
+      <div className="placement-tool">
+        <div className="placement-summary">
+          <div>
+            <span className="brush-label">Placement tool</span>
+            <p className="placement-copy">
+              {selectedPlacement
+                ? `${selectedPlacement.color} ${selectedPlacement.pieceId}`
+                : "No piece selected. Click a remaining piece below to arm placement."}
+            </p>
+          </div>
+          {selectedPlacement ? (
+            <div className={`placement-chip ${selectedPlacement.color}`}>
+              {selectedPlacement.rotation}° {selectedPlacement.reflection ? "flip" : "normal"}
+            </div>
+          ) : null}
+        </div>
+
+        {selectedPlacement ? (
+          <div className="placement-preview">
+            <PieceMiniature
+              cells={selectedPieceCells}
+              color={selectedPlacement.color}
+            />
+          </div>
+        ) : null}
+
         <div className="brush-pills">
-          <button
-            type="button"
-            className={selectedPaintColor === null ? "brush active" : "brush"}
-            onClick={() => onPaintColorChange(null)}
-          >
+          <button type="button" className="brush" onClick={onRotateSelection} disabled={!selectedPlacement}>
+            rotate
+          </button>
+          <button type="button" className="brush" onClick={onFlipSelection} disabled={!selectedPlacement}>
+            flip
+          </button>
+          <button type="button" className="brush" onClick={onClearSelection}>
             erase
           </button>
-          {playerColors.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className={selectedPaintColor === color ? `brush active ${color}` : `brush ${color}`}
-              onClick={() => onPaintColorChange(color)}
-            >
-              {color}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -196,4 +219,3 @@ export function ControlsPanel({
     </section>
   );
 }
-

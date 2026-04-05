@@ -1,18 +1,32 @@
-import type { PlayerColor } from "../types/blokus";
+import type { PlacementSelection, PlayerColor } from "../types/blokus";
 
 interface BoardGridProps {
   board: (PlayerColor | null)[][];
-  selectedPaintColor: PlayerColor | null;
+  selectedPlacement: PlacementSelection | null;
   onCellClick: (row: number, col: number) => void;
-  highlightedCells: Set<string>;
+  onCellHover: (row: number, col: number) => void;
+  onBoardLeave: () => void;
+  suggestionCells: Set<string>;
+  previewCells: Set<string>;
+  previewInvalid: boolean;
 }
 
 export function BoardGrid({
   board,
-  selectedPaintColor,
+  selectedPlacement,
   onCellClick,
-  highlightedCells
+  onCellHover,
+  onBoardLeave,
+  suggestionCells,
+  previewCells,
+  previewInvalid
 }: BoardGridProps) {
+  const previewLabel = selectedPlacement
+    ? `${selectedPlacement.color} ${selectedPlacement.pieceId}, ${selectedPlacement.rotation}°, ${
+        selectedPlacement.reflection ? "flipped" : "normal"
+      }`
+    : "erase mode";
+
   return (
     <div className="board-shell">
       <div className="board-header">
@@ -21,23 +35,25 @@ export function BoardGrid({
           <h2>Position Editor</h2>
         </div>
         <p className="caption">
-          Paint arbitrary cells for reconstruction, or apply suggested legal moves from the side panel.
+          Select a remaining piece, rotate or flip it, then click a square to place it. With no piece
+          selected, clicking an occupied square erases one cell.
         </p>
       </div>
       <div className="paint-chip-row">
-        <span className="paint-label">Brush</span>
-        <span className={`paint-chip ${selectedPaintColor ?? "empty"}`}>
-          {selectedPaintColor ?? "erase"}
+        <span className="paint-label">Editor</span>
+        <span className={`paint-chip ${selectedPlacement?.color ?? "empty"}`}>
+          {previewLabel}
         </span>
       </div>
-      <div className="board-grid" role="grid" aria-label="Blokus board">
+      <div className="board-grid" role="grid" aria-label="Blokus board" onMouseLeave={onBoardLeave}>
         {board.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             const key = `${rowIndex}:${colIndex}`;
             const className = [
               "board-cell",
               cell ? `cell-${cell}` : "cell-empty",
-              highlightedCells.has(key) ? "cell-highlighted" : ""
+              suggestionCells.has(key) ? "cell-highlighted" : "",
+              previewCells.has(key) ? (previewInvalid ? "cell-preview-invalid" : "cell-preview") : ""
             ]
               .filter(Boolean)
               .join(" ");
@@ -48,6 +64,7 @@ export function BoardGrid({
                 role="gridcell"
                 className={className}
                 aria-label={`cell ${rowIndex + 1}-${colIndex + 1}`}
+                onMouseEnter={() => onCellHover(rowIndex, colIndex)}
                 onClick={() => onCellClick(rowIndex, colIndex)}
               />
             );
@@ -57,4 +74,3 @@ export function BoardGrid({
     </div>
   );
 }
-

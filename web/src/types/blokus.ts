@@ -41,3 +41,9 @@ export interface PieceDescriptor {
   transform_count: number;
 }
 
+export interface PlacementSelection {
+  color: PlayerColor;
+  pieceId: string;
+  rotation: number;
+  reflection: boolean;
+}

@@ -5,7 +5,21 @@ import { BoardGrid } from "./components/BoardGrid";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { PieceInventoryPanel } from "./components/PieceInventoryPanel";
 import { SuggestionsPanel } from "./components/SuggestionsPanel";
-import type { BoardState, Move, MoveSuggestion, PieceDescriptor, PlayerColor } from "./types/blokus";
+import type {
+  BoardState,
+  Coordinate,
+  Move,
+  MoveSuggestion,
+  PieceDescriptor,
+  PlacementSelection,
+  PlayerColor
+} from "./types/blokus";
+import {
+  coordinatesToSet,
+  isPlacementValid,
+  pieceCellsForId,
+  placePieceAtAnchor
+} from "./utils/pieces";
 import { createInitialState, syncOpenedColors } from "./utils/state";
 
 function App() {
@@ -13,7 +27,8 @@ function App() {
   const [pieces, setPieces] = useState<PieceDescriptor[]>([]);
   const [suggestions, setSuggestions] = useState<MoveSuggestion[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
-  const [selectedPaintColor, setSelectedPaintColor] = useState<PlayerColor | null>("blue");
+  const [selectedPlacement, setSelectedPlacement] = useState<PlacementSelection | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<Coordinate | null>(null);
   const [topK, setTopK] = useState(5);
   const [simulations, setSimulations] = useState(96);
   const [candidateLimit, setCandidateLimit] = useState(24);
@@ -22,13 +37,38 @@ function App() {
   const [loading, setLoading] = useState(false);
 
   const deferredSuggestions = useDeferredValue(suggestions);
-  const highlightedCells = new Set<string>();
   const selectedSuggestion = deferredSuggestions[selectedSuggestionIndex];
-  if (selectedSuggestion && !selectedSuggestion.move.is_pass) {
-    highlightedCells.add(
-      `${selectedSuggestion.move.anchor_cell.row}:${selectedSuggestion.move.anchor_cell.col}`
-    );
-  }
+  const suggestionCells =
+    selectedSuggestion && !selectedSuggestion.move.is_pass
+      ? coordinatesToSet(
+          placePieceAtAnchor(
+            selectedSuggestion.move.anchor_cell,
+            pieceCellsForId(
+              pieces,
+              selectedSuggestion.move.piece_id,
+              selectedSuggestion.move.rotation,
+              selectedSuggestion.move.reflection
+            )
+          )
+        )
+      : new Set<string>();
+
+  const selectedPieceCells = selectedPlacement
+    ? pieceCellsForId(
+        pieces,
+        selectedPlacement.pieceId,
+        selectedPlacement.rotation,
+        selectedPlacement.reflection
+      )
+    : [];
+
+  const previewPlacement =
+    selectedPlacement && hoveredCell
+      ? placePieceAtAnchor(hoveredCell, selectedPieceCells)
+      : [];
+  const previewCells = coordinatesToSet(previewPlacement);
+  const previewInvalid =
+    previewPlacement.length > 0 && !isPlacementValid(boardState.board, previewPlacement);
 
   useEffect(() => {
     void (async () => {
@@ -43,25 +83,87 @@ function App() {
   }
 
   function handleCellClick(row: number, col: number) {
-    const nextBoard = boardState.board.map((boardRow) => [...boardRow]);
-    const current = nextBoard[row][col];
-    nextBoard[row][col] = current === selectedPaintColor ? null : selectedPaintColor;
-    const openedColors = syncOpenedColors(nextBoard);
-    startTransition(() => {
+    if (!selectedPlacement) {
+      if (!boardState.board[row][col]) {
+        setStatusMessage("Select a remaining piece to place it, or click an occupied cell to erase it.");
+        return;
+      }
+      const nextBoard = boardState.board.map((boardRow) => [...boardRow]);
+      nextBoard[row][col] = null;
+      setErrorMessage("");
       setBoardState({
         ...boardState,
         board: nextBoard,
-        opened_colors: openedColors
+        opened_colors: syncOpenedColors(nextBoard)
       });
+      setSuggestions([]);
+      setStatusMessage("Erased one cell. If needed, restore the corresponding piece in the inventory.");
+      return;
+    }
+
+    const placement = placePieceAtAnchor({ row, col }, selectedPieceCells);
+    if (!isPlacementValid(boardState.board, placement)) {
+      setErrorMessage("That piece does not fit there. Keep it in bounds and off occupied cells.");
+      return;
+    }
+
+    const nextBoard = boardState.board.map((boardRow) => [...boardRow]);
+    for (const cell of placement) {
+      nextBoard[cell.row][cell.col] = selectedPlacement.color;
+    }
+
+    const remainingForColor = boardState.remaining_pieces_by_color[selectedPlacement.color].filter(
+      (pieceId) => pieceId !== selectedPlacement.pieceId
+    );
+
+    setErrorMessage("");
+    setSuggestions([]);
+    setBoardState({
+      ...boardState,
+      board: nextBoard,
+      remaining_pieces_by_color: {
+        ...boardState.remaining_pieces_by_color,
+        [selectedPlacement.color]: remainingForColor
+      },
+      opened_colors: syncOpenedColors(nextBoard),
+      last_piece_placed_by_color: {
+        ...boardState.last_piece_placed_by_color,
+        [selectedPlacement.color]: selectedPlacement.pieceId
+      }
     });
+    setSelectedPlacement(null);
+    setStatusMessage(
+      `Placed ${selectedPlacement.pieceId} for ${selectedPlacement.color} at ${row}, ${col}.`
+    );
   }
 
-  function togglePiece(color: PlayerColor, pieceId: string) {
-    const existing = boardState.remaining_pieces_by_color[color];
-    const nextPieces = existing.includes(pieceId)
-      ? existing.filter((item) => item !== pieceId)
-      : [...existing, pieceId].sort();
+  function selectPiece(color: PlayerColor, pieceId: string) {
+    const shouldClear =
+      selectedPlacement?.color === color && selectedPlacement.pieceId === pieceId;
+    setSelectedPlacement(
+      shouldClear
+        ? null
+        : {
+            color,
+            pieceId,
+            rotation: 0,
+            reflection: false
+          }
+    );
+    setErrorMessage("");
+    setStatusMessage(
+      shouldClear
+        ? "Selection cleared. Click an occupied cell to erase it or choose another piece."
+        : `Selected ${pieceId} for ${color}. Click the board to place it.`
+    );
+  }
 
+  function restorePiece(color: PlayerColor, pieceId: string) {
+    const existing = boardState.remaining_pieces_by_color[color];
+    if (existing.includes(pieceId)) {
+      return;
+    }
+    const nextPieces = [...existing, pieceId].sort();
     setBoardState({
       ...boardState,
       remaining_pieces_by_color: {
@@ -69,6 +171,33 @@ function App() {
         [color]: nextPieces
       }
     });
+    setStatusMessage(`Returned ${pieceId} to ${color}'s remaining inventory.`);
+  }
+
+  function rotateSelection() {
+    setSelectedPlacement((currentSelection) =>
+      currentSelection
+        ? {
+            ...currentSelection,
+            rotation: (currentSelection.rotation + 90) % 360
+          }
+        : null
+    );
+  }
+
+  function flipSelection() {
+    setSelectedPlacement((currentSelection) =>
+      currentSelection
+        ? {
+            ...currentSelection,
+            reflection: !currentSelection.reflection
+          }
+        : null
+    );
+  }
+
+  function clearSelection() {
+    setSelectedPlacement(null);
   }
 
   async function handleSuggest() {
@@ -100,6 +229,7 @@ function App() {
       const nextState = await applyMove(boardState, suggestion.move);
       setBoardState(nextState);
       setSuggestions([]);
+      setSelectedPlacement(null);
       setStatusMessage(`Applied ${suggestion.move.piece_id} for ${suggestion.move.color}.`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not apply move.");
@@ -119,6 +249,7 @@ function App() {
       const nextState = await applyMove(boardState, passMove);
       setBoardState(nextState);
       setSuggestions([]);
+      setSelectedPlacement(null);
       setStatusMessage(`Passed turn for ${passMove.color}.`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Pass failed.");
@@ -129,6 +260,8 @@ function App() {
     startTransition(() => {
       setBoardState(createInitialState());
       setSuggestions([]);
+      setSelectedPlacement(null);
+      setHoveredCell(null);
       setErrorMessage("");
       setStatusMessage("Reset to the official empty board.");
     });
@@ -149,9 +282,13 @@ function App() {
       <main className="layout-grid">
         <BoardGrid
           board={boardState.board}
-          selectedPaintColor={selectedPaintColor}
+          selectedPlacement={selectedPlacement}
           onCellClick={handleCellClick}
-          highlightedCells={highlightedCells}
+          onCellHover={(row, col) => setHoveredCell({ row, col })}
+          onBoardLeave={() => setHoveredCell(null)}
+          suggestionCells={suggestionCells}
+          previewCells={previewCells}
+          previewInvalid={previewInvalid}
         />
 
         <div className="sidebar-stack">
@@ -163,12 +300,15 @@ function App() {
             statusMessage={statusMessage}
             errorMessage={errorMessage}
             loading={loading}
-            selectedPaintColor={selectedPaintColor}
+            selectedPlacement={selectedPlacement}
+            selectedPieceCells={selectedPieceCells}
             onStateChange={updateBoardState}
             onTopKChange={setTopK}
             onSimulationsChange={setSimulations}
             onCandidateLimitChange={setCandidateLimit}
-            onPaintColorChange={setSelectedPaintColor}
+            onRotateSelection={rotateSelection}
+            onFlipSelection={flipSelection}
+            onClearSelection={clearSelection}
             onSuggest={handleSuggest}
             onReset={handleReset}
             onPass={handlePass}
@@ -183,10 +323,19 @@ function App() {
         </div>
       </main>
 
-      <PieceInventoryPanel boardState={boardState} pieces={pieces} onTogglePiece={togglePiece} />
+      <PieceInventoryPanel
+        boardState={boardState}
+        pieces={pieces}
+        selectedPlacement={
+          selectedPlacement
+            ? { color: selectedPlacement.color, pieceId: selectedPlacement.pieceId }
+            : null
+        }
+        onSelectPiece={selectPiece}
+        onRestorePiece={restorePiece}
+      />
     </div>
   );
 }
 
 export default App;
-
