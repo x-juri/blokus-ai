@@ -11,6 +11,9 @@ htmlcov/
 node_modules/
 web/node_modules/
 web/dist/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
 *.pyc
 *.pyo
 *.pyd
@@ -18,4 +21,3 @@ web/dist/
 *.swo
 .env
 .env.*
-
