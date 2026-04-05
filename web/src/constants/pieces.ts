@@ -17,7 +17,7 @@ export const fallbackPieces: PieceDescriptor[] = [
   { piece_id: "T5", size: 5, cells: [[0, 0], [0, 1], [0, 2], [1, 1], [2, 1]], transform_count: 4 },
   { piece_id: "V5", size: 5, cells: [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]], transform_count: 4 },
   { piece_id: "N5", size: 5, cells: [[0, 0], [1, 0], [1, 1], [2, 1], [3, 1]], transform_count: 8 },
-  { piece_id: "Z5", size: 5, cells: [[0, 0], [0, 1], [1, 1], [1, 2], [1, 3]], transform_count: 8 },
+  { piece_id: "Z5", size: 5, cells: [[0, 0], [1, 0], [1, 1], [1, 2], [2, 2]], transform_count: 4 },
   { piece_id: "P5", size: 5, cells: [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0]], transform_count: 8 },
   { piece_id: "W5", size: 5, cells: [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2]], transform_count: 4 },
   { piece_id: "U5", size: 5, cells: [[0, 0], [0, 2], [1, 0], [1, 1], [1, 2]], transform_count: 4 },
@@ -25,4 +25,3 @@ export const fallbackPieces: PieceDescriptor[] = [
   { piece_id: "X5", size: 5, cells: [[0, 1], [1, 0], [1, 1], [1, 2], [2, 1]], transform_count: 1 },
   { piece_id: "Y5", size: 5, cells: [[0, 0], [1, 0], [2, 0], [3, 0], [2, 1]], transform_count: 8 }
 ];
-

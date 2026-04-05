@@ -95,6 +95,13 @@ def test_piece_transform_catalog_has_expected_symmetries() -> None:
     assert len(PIECE_TRANSFORMS["I2"]) == 2
     assert len(PIECE_TRANSFORMS["O4"]) == 1
     assert len(PIECE_TRANSFORMS["L5"]) == 8
+    assert len(PIECE_TRANSFORMS["Z5"]) == 4
+
+
+def test_n5_and_z5_are_distinct_piece_shapes() -> None:
+    n5_shapes = {transform.cells for transform in PIECE_TRANSFORMS["N5"]}
+    z5_shapes = {transform.cells for transform in PIECE_TRANSFORMS["Z5"]}
+    assert n5_shapes.isdisjoint(z5_shapes)
 
 
 def test_legal_move_generation_produces_opening_choices() -> None:
@@ -116,4 +123,3 @@ def test_result_groups_standard_scores_by_color() -> None:
     summary = result(state)
     assert summary.group_scores["blue"] == -89
     assert summary.group_scores["yellow"] == -89
-
