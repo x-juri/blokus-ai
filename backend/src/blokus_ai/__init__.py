@@ -1,0 +1,2 @@
+"""Blokus AI backend package."""
+

@@ -1,0 +1,1 @@
+{"root":["./src/app.test.tsx","./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/api/client.ts","./src/components/boardgrid.tsx","./src/components/controlspanel.tsx","./src/components/pieceinventorypanel.tsx","./src/components/suggestionspanel.tsx","./src/constants/pieces.ts","./src/test/setup.ts","./src/types/blokus.ts","./src/utils/state.ts"],"version":"5.9.3"}
