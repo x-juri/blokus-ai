@@ -9,6 +9,14 @@ interface BoardGridProps {
   suggestionCells: Set<string>;
   previewCells: Set<string>;
   previewInvalid: boolean;
+  eyebrow?: string;
+  title?: string;
+  caption?: string;
+  chip?: {
+    label: string;
+    value: string;
+    tone: PlayerColor | "empty";
+  };
 }
 
 export function BoardGrid({
@@ -19,29 +27,34 @@ export function BoardGrid({
   onBoardLeave,
   suggestionCells,
   previewCells,
-  previewInvalid
+  previewInvalid,
+  eyebrow = "Workbench",
+  title = "Position Editor",
+  caption = "Select a remaining piece, rotate or flip it, then click a square to place it. With no piece selected, clicking an occupied square erases one cell.",
+  chip
 }: BoardGridProps) {
-  const previewLabel = selectedPlacement
-    ? `${selectedPlacement.color} ${selectedPlacement.pieceId}, ${selectedPlacement.rotation}°, ${
-        selectedPlacement.reflection ? "flipped" : "normal"
-      }`
-    : "erase mode";
+  const previewLabel = chip
+    ? chip.value
+    : selectedPlacement
+      ? `${selectedPlacement.color} ${selectedPlacement.pieceId}, ${selectedPlacement.rotation}°, ${
+          selectedPlacement.reflection ? "flipped" : "normal"
+        }`
+      : "erase mode";
+  const previewTone = chip?.tone ?? selectedPlacement?.color ?? "empty";
+  const previewChipLabel = chip?.label ?? "Editor";
 
   return (
     <div className="board-shell">
       <div className="board-header">
         <div>
-          <p className="eyebrow">Workbench</p>
-          <h2>Position Editor</h2>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
         </div>
-        <p className="caption">
-          Select a remaining piece, rotate or flip it, then click a square to place it. With no piece
-          selected, clicking an occupied square erases one cell.
-        </p>
+        <p className="caption">{caption}</p>
       </div>
       <div className="paint-chip-row">
-        <span className="paint-label">Editor</span>
-        <span className={`paint-chip ${selectedPlacement?.color ?? "empty"}`}>
+        <span className="paint-label">{previewChipLabel}</span>
+        <span className={`paint-chip ${previewTone}`}>
           {previewLabel}
         </span>
       </div>

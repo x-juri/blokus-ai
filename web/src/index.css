@@ -60,6 +60,12 @@ select {
   line-height: 1.5;
 }
 
+.hero-actions {
+  display: grid;
+  gap: 16px;
+  justify-items: end;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   font-size: 0.72rem;
@@ -390,6 +396,128 @@ select {
   margin-top: 22px;
 }
 
+.play-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.segmented-toggle {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(16, 34, 51, 0.08);
+}
+
+.mode-toggle {
+  justify-self: end;
+}
+
+.toggle-button {
+  border: 0;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: transparent;
+  color: #30546d;
+  cursor: pointer;
+}
+
+.toggle-button.active {
+  background: #102233;
+  color: white;
+}
+
+.game-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meta-card {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  display: grid;
+  gap: 6px;
+}
+
+.meta-card span {
+  color: #60707d;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.meta-card strong {
+  text-transform: capitalize;
+}
+
+.score-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.score-pill {
+  min-width: 120px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  display: grid;
+  gap: 6px;
+}
+
+.score-pill span {
+  color: #60707d;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.move-log {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.move-log-row {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #30546d;
+}
+
+.move-log-row.active {
+  background: #102233;
+  color: white;
+}
+
+.replay-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.replay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.replay-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.replay-side {
+  display: grid;
+  gap: 14px;
+}
+
 .inventory-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -533,6 +661,10 @@ select {
   .layout-grid {
     grid-template-columns: 1fr;
   }
+
+  .replay-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -545,11 +677,20 @@ select {
     align-items: start;
   }
 
+  .hero-actions,
+  .mode-toggle {
+    justify-items: start;
+  }
+
   .inventory-columns {
     grid-template-columns: 1fr;
   }
 
   .piece-card-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .game-meta-grid {
+    grid-template-columns: 1fr;
   }
 }

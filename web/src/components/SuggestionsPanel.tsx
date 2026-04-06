@@ -34,9 +34,11 @@ export function SuggestionsPanel({
                 onClick={() => onSelect(index)}
               >
                 <div>
-                  <strong>{suggestion.move.piece_id}</strong>
+                  <strong>{suggestion.move.is_pass ? "PASS" : suggestion.move.piece_id}</strong>
                   <span>
-                    ({suggestion.move.anchor_cell.row}, {suggestion.move.anchor_cell.col})
+                    {suggestion.move.is_pass
+                      ? "no legal placements"
+                      : `(${suggestion.move.anchor_cell.row}, ${suggestion.move.anchor_cell.col})`}
                   </span>
                 </div>
                 <div className="suggestion-metrics">
@@ -48,12 +50,16 @@ export function SuggestionsPanel({
           </div>
           {selected ? (
             <div className="suggestion-detail">
-              <p>
-                <strong>Rotation:</strong> {selected.move.rotation} degrees
-              </p>
-              <p>
-                <strong>Reflection:</strong> {selected.move.reflection ? "yes" : "no"}
-              </p>
+              {selected.move.is_pass ? null : (
+                <>
+                  <p>
+                    <strong>Rotation:</strong> {selected.move.rotation} degrees
+                  </p>
+                  <p>
+                    <strong>Reflection:</strong> {selected.move.reflection ? "yes" : "no"}
+                  </p>
+                </>
+              )}
               <p>{selected.rationale}</p>
               <button type="button" className="primary-button" onClick={() => onApply(selectedIndex)}>
                 Apply suggestion
@@ -65,4 +71,3 @@ export function SuggestionsPanel({
     </section>
   );
 }
-

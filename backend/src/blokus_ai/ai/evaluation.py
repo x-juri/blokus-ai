@@ -8,8 +8,9 @@ from blokus_ai.engine.game import (
     frontier_corners,
     generate_legal_moves,
     group_map,
+    pass_move_for_color,
     owner_group,
-    result,
+    score_margin_for_color,
 )
 from blokus_ai.engine.models import BoardState, Move, MoveSuggestion, PlayerColor, TURN_ORDER
 from blokus_ai.engine.pieces import PIECE_SIZES
@@ -27,15 +28,7 @@ def center_bias(move: Move) -> float:
 
 
 def group_score_margin(state: BoardState, root_color: PlayerColor) -> float:
-    game_result = result(state)
-    root_group = owner_group(state, root_color)
-    root_score = game_result.group_scores.get(root_group, 0)
-    others = [
-        score
-        for group_name, score in game_result.group_scores.items()
-        if group_name != root_group
-    ]
-    return float(root_score - max(others, default=0))
+    return score_margin_for_color(state, root_color)
 
 
 def heuristic_value(state: BoardState, root_color: PlayerColor) -> float:
@@ -59,6 +52,8 @@ def heuristic_value(state: BoardState, root_color: PlayerColor) -> float:
 
 
 def describe_move(state: BoardState, move: Move) -> str:
+    if move.is_pass:
+        return f"{move.color.value} has no legal placements and must pass."
     projected = apply_move(state, move)
     size = PIECE_SIZES[move.piece_id]
     frontier = frontier_count(projected, move.color)
@@ -98,5 +93,15 @@ def rank_moves(
         )
         for move in generate_legal_moves(state, color)
     ]
+    if not ranked and color == state.active_color:
+        pass_move = pass_move_for_color(color)
+        ranked = [
+            MoveSuggestion(
+                move=pass_move,
+                score=heuristic_value(state, root_color) - 1.0,
+                rationale=describe_move(state, pass_move),
+                visits=0,
+            )
+        ]
     ranked.sort(key=lambda suggestion: suggestion.score, reverse=True)
     return ranked if top_k is None else ranked[:top_k]

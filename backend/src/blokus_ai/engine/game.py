@@ -17,6 +17,9 @@ from blokus_ai.engine.models import (
 from blokus_ai.engine.pieces import PIECE_IDS, PIECE_SIZES, PIECE_TRANSFORMS
 
 
+PASS_PIECE_ID = "PASS"
+MAX_ABS_TEAM_MARGIN = 218.0
+
 CORNER_BY_COLOR = {
     PlayerColor.BLUE: (0, 0),
     PlayerColor.YELLOW: (0, BOARD_SIZE - 1),
@@ -107,7 +110,7 @@ def frontier_corners(state: BoardState, color: PlayerColor) -> set[tuple[int, in
 
 def is_legal_move(state: BoardState, move: Move) -> bool:
     if move.is_pass:
-        return not generate_legal_moves(state, move.color)
+        return move.color == state.active_color and not generate_legal_moves(state, move.color)
     if move.color != state.active_color:
         return False
     if move.piece_id not in state.remaining_pieces_by_color[move.color]:
@@ -187,11 +190,39 @@ def generate_legal_moves(
     return legal_moves
 
 
+def has_legal_move(state: BoardState, color: Optional[PlayerColor] = None) -> bool:
+    return bool(generate_legal_moves(state, color))
+
+
+def pass_move_for_color(color: PlayerColor) -> Move:
+    return Move(
+        color=color,
+        piece_id=PASS_PIECE_ID,
+        anchor_cell=Coordinate(row=0, col=0),
+        rotation=0,
+        reflection=False,
+        is_pass=True,
+    )
+
+
+def legal_moves_or_pass(state: BoardState, color: Optional[PlayerColor] = None) -> list[Move]:
+    target_color = color or state.active_color
+    legal_moves = generate_legal_moves(state, target_color)
+    if legal_moves:
+        return legal_moves
+    if target_color != state.active_color:
+        return []
+    return [pass_move_for_color(target_color)]
+
+
 def apply_pass(state: BoardState, color: Optional[PlayerColor] = None) -> BoardState:
     color = color or state.active_color
+    if color != state.active_color:
+        raise ValueError(f"It is {state.active_color.value}'s turn, not {color.value}'s.")
     if generate_legal_moves(state, color):
         raise ValueError(f"{color.value} has legal moves and may not pass.")
     new_state = clone_state(state)
+    new_state.move_history.append(pass_move_for_color(color))
     new_state.active_color = next_color(color)
     new_state.passes_in_row += 1
     return new_state
@@ -220,6 +251,16 @@ def is_terminal(state: BoardState) -> bool:
     if all(not state.remaining_pieces_by_color[color] for color in TURN_ORDER):
         return True
     return state.passes_in_row >= len(TURN_ORDER)
+
+
+def advance_forced_passes(state: BoardState) -> tuple[BoardState, list[Move]]:
+    working_state = state
+    forced_passes: list[Move] = []
+    while not is_terminal(working_state) and not has_legal_move(working_state):
+        forced_pass = pass_move_for_color(working_state.active_color)
+        forced_passes.append(forced_pass)
+        working_state = apply_pass(working_state, working_state.active_color)
+    return working_state, forced_passes
 
 
 def color_score(state: BoardState, color: PlayerColor) -> int:
@@ -255,6 +296,14 @@ def owner_group(state: BoardState, color: PlayerColor) -> str:
     return color.value
 
 
+def team_of_color(state: BoardState, color: PlayerColor) -> str:
+    return owner_group(state, color)
+
+
+def team_to_move(state: BoardState) -> str:
+    return owner_group(state, state.active_color)
+
+
 def result(state: BoardState) -> GameResult:
     scores_by_color = {color: color_score(state, color) for color in TURN_ORDER}
     grouped: dict[str, int] = {}
@@ -270,3 +319,20 @@ def result(state: BoardState) -> GameResult:
 
     return GameResult(scores_by_color=scores_by_color, group_scores=grouped, winner_group=winner_group)
 
+
+def score_margin_for_color(state: BoardState, color: PlayerColor) -> float:
+    summary = result(state)
+    root_group = owner_group(state, color)
+    root_score = summary.group_scores.get(root_group, 0)
+    rivals = [
+        score
+        for group_name, score in summary.group_scores.items()
+        if group_name != root_group
+    ]
+    return float(root_score - max(rivals, default=0))
+
+
+def normalized_score_margin_for_color(state: BoardState, color: PlayerColor) -> float:
+    margin = score_margin_for_color(state, color)
+    normalized = margin / MAX_ABS_TEAM_MARGIN
+    return max(-1.0, min(1.0, normalized))

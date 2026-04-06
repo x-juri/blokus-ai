@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -49,6 +49,24 @@ class MoveSuggestion(BaseModel):
     score: float
     rationale: str
     visits: int = 0
+
+
+AgentId = Literal[
+    "heuristic-mcts",
+    "policy-mcts",
+    "mobility-heuristic",
+    "random-legal",
+]
+
+
+class AgentConfig(BaseModel):
+    agent_id: AgentId = "heuristic-mcts"
+    checkpoint_id: Optional[str] = None
+    simulations: Optional[int] = Field(default=None, ge=1, le=4000)
+    candidate_limit: Optional[int] = Field(default=None, ge=1, le=256)
+    rollout_depth: Optional[int] = Field(default=None, ge=1, le=64)
+    exploration_weight: Optional[float] = Field(default=None, gt=0.0, le=4.0)
+    seed: Optional[int] = None
 
 
 class GameConfig(BaseModel):
@@ -113,4 +131,3 @@ class GameResult(BaseModel):
     scores_by_color: dict[PlayerColor, int]
     group_scores: dict[str, int]
     winner_group: Optional[str] = None
-

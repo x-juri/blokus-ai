@@ -4,91 +4,98 @@ import argparse
 import json
 from dataclasses import dataclass
 
-from blokus_ai.ai.agents import LargestPieceGreedyAgent, MobilityHeuristicAgent, RandomLegalAgent
-from blokus_ai.ai.mcts import MCTSAgent
-from blokus_ai.engine.game import apply_move, apply_pass, create_initial_state, is_terminal, result
-from blokus_ai.engine.models import GameConfig
+from blokus_ai.ai.agents import build_agent
+from blokus_ai.engine.game import apply_move, create_initial_state, has_legal_move, is_terminal, owner_group, pass_move_for_color, result, score_margin_for_color
+from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant, PlayerColor
 
 
 @dataclass
-class BenchmarkRow:
-    agent: str
+class TournamentRow:
+    matchup: str
+    games: int
     average_margin: float
-    average_group_score: float
+    wins: int
 
 
-def play_partial_game(agent, plies: int) -> tuple[float, float]:
-    state = create_initial_state(GameConfig())
-    for _ in range(plies):
+def play_game(
+    player_a_agent_config: AgentConfig,
+    player_b_agent_config: AgentConfig,
+    config: GameConfig | None = None,
+    max_turns: int = 512,
+) -> tuple[float, str | None]:
+    config = config or GameConfig(variant=GameVariant.PAIRED_2)
+    state = create_initial_state(config)
+    agents = {
+        "player_a": build_agent(player_a_agent_config),
+        "player_b": build_agent(player_b_agent_config),
+    }
+
+    for _ in range(max_turns):
         if is_terminal(state):
             break
-        suggestions = agent.suggest(state, top_k=1)
-        if not suggestions:
-            state = apply_pass(state)
+        if not has_legal_move(state):
+            state = apply_move(state, pass_move_for_color(state.active_color))
             continue
-        state = apply_move(state, suggestions[0].move)
 
-    summary = result(state)
-    blue_score = summary.group_scores.get("blue", summary.group_scores.get("player_a", 0))
-    rivals = [
-        score
-        for group_name, score in summary.group_scores.items()
-        if group_name not in {"blue", "player_a"}
-    ]
-    margin = blue_score - max(rivals, default=0)
-    return margin, blue_score
+        group_name = owner_group(state, state.active_color)
+        decision = agents[group_name].select_move(state, top_k=1)
+        if decision.chosen_move is None:
+            break
+        state = apply_move(state, decision.chosen_move)
+
+    margin = score_margin_for_color(state, PlayerColor.BLUE)
+    return margin, result(state).winner_group
 
 
-def run_benchmark(
+def run_paired_tournament(
+    agent_one: AgentConfig,
+    agent_two: AgentConfig,
     games: int = 4,
-    plies: int = 12,
-    mcts_simulations: int = 24,
-    candidate_limit: int = 12,
-    rollout_depth: int = 4,
-) -> list[BenchmarkRow]:
-    agents = [
-        RandomLegalAgent(seed=11),
-        LargestPieceGreedyAgent(),
-        MobilityHeuristicAgent(),
-        MCTSAgent(
-            simulations=mcts_simulations,
-            candidate_limit=candidate_limit,
-            rollout_depth=rollout_depth,
-        ),
+    max_turns: int = 512,
+) -> list[TournamentRow]:
+    rows: list[TournamentRow] = []
+    matchups = [
+        ("player_a", agent_one, agent_two),
+        ("player_b", agent_two, agent_one),
     ]
-    rows: list[BenchmarkRow] = []
-    for agent in agents:
+    for seat_name, player_a_config, player_b_config in matchups:
         margins: list[float] = []
-        scores: list[float] = []
+        wins = 0
         for _ in range(games):
-            margin, score = play_partial_game(agent, plies)
-            margins.append(margin)
-            scores.append(score)
+            margin, winner = play_game(player_a_config, player_b_config, max_turns=max_turns)
+            normalized_margin = margin if seat_name == "player_a" else -margin
+            margins.append(normalized_margin)
+            if winner == seat_name:
+                wins += 1
         rows.append(
-            BenchmarkRow(
-                agent=agent.name,
+            TournamentRow(
+                matchup=f"{agent_one.agent_id} vs {agent_two.agent_id} ({seat_name})",
+                games=games,
                 average_margin=sum(margins) / len(margins),
-                average_group_score=sum(scores) / len(scores),
+                wins=wins,
             )
         )
     return rows
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run lightweight Blokus AI benchmark games.")
+    parser = argparse.ArgumentParser(description="Run paired-2 Blokus tournaments.")
     parser.add_argument("--games", type=int, default=4)
-    parser.add_argument("--plies", type=int, default=12)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    rows = run_benchmark(games=args.games, plies=args.plies)
+    rows = run_paired_tournament(
+        AgentConfig(agent_id="heuristic-mcts", simulations=24, candidate_limit=12, rollout_depth=4),
+        AgentConfig(agent_id="mobility-heuristic"),
+        games=args.games,
+    )
     if args.json:
         print(json.dumps([row.__dict__ for row in rows], indent=2))
         return
 
-    print("agent\taverage_margin\taverage_group_score")
+    print("matchup\tgames\taverage_margin\twins")
     for row in rows:
-        print(f"{row.agent}\t{row.average_margin:.2f}\t{row.average_group_score:.2f}")
+        print(f"{row.matchup}\t{row.games}\t{row.average_margin:.2f}\t{row.wins}")
 
 
 if __name__ == "__main__":
