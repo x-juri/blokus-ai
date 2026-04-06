@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
 from blokus_ai.engine.game import create_initial_state, generate_legal_moves
-from blokus_ai.engine.models import GameConfig, GameVariant
+from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant
 from blokus_ai.training.encoding import (
     ACTION_SPACE_SIZE,
     PASS_ACTION_INDEX,
@@ -18,6 +19,7 @@ from blokus_ai.training.model import (
     load_policy_value_checkpoint,
     save_policy_value_checkpoint,
 )
+from blokus_ai.training.self_play import generate_self_play_records
 
 
 def test_action_encoding_round_trip_for_opening_move() -> None:
@@ -50,3 +52,17 @@ def test_checkpoint_save_and_load_round_trip() -> None:
     assert loaded is not None
     assert loaded.checkpoint_id == checkpoint_id
     assert loaded.metadata["source"] == "test"
+
+
+def test_self_play_progress_callback_reports_final_batch(tmp_path: Path) -> None:
+    progress_calls: list[tuple[int, int]] = []
+    output_path = tmp_path / "smoke.jsonl"
+    generate_self_play_records(
+        games=3,
+        output_path=output_path,
+        config=GameConfig(variant=GameVariant.PAIRED_2),
+        agent_config=AgentConfig(agent_id="random-legal", seed=1),
+        progress_every=2,
+        progress_callback=lambda completed, total: progress_calls.append((completed, total)),
+    )
+    assert progress_calls == [(2, 3), (3, 3)]

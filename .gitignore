@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 backend/.venv/
+backend/artifacts/
 dist/
 build/
 coverage/

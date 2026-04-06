@@ -3,9 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 from blokus_ai.ai.agents import build_agent
-from blokus_ai.engine.game import apply_move, create_initial_state, has_legal_move, is_terminal, owner_group, pass_move_for_color, result, score_margin_for_color
+from blokus_ai.engine.game import (
+    apply_move,
+    create_initial_state,
+    has_legal_move,
+    is_terminal,
+    owner_group,
+    pass_move_for_color,
+    result,
+    score_margin_for_color,
+)
 from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant, PlayerColor
 
 
@@ -52,6 +62,7 @@ def run_paired_tournament(
     agent_two: AgentConfig,
     games: int = 4,
     max_turns: int = 512,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[TournamentRow]:
     rows: list[TournamentRow] = []
     matchups = [
@@ -61,7 +72,9 @@ def run_paired_tournament(
     for seat_name, player_a_config, player_b_config in matchups:
         margins: list[float] = []
         wins = 0
-        for _ in range(games):
+        for game_index in range(games):
+            if progress_callback is not None:
+                progress_callback(seat_name, game_index + 1, games)
             margin, winner = play_game(player_a_config, player_b_config, max_turns=max_turns)
             normalized_margin = margin if seat_name == "player_a" else -margin
             margins.append(normalized_margin)
@@ -81,13 +94,45 @@ def run_paired_tournament(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run paired-2 Blokus tournaments.")
     parser.add_argument("--games", type=int, default=4)
+    parser.add_argument("--max-turns", type=int, default=160)
+    parser.add_argument(
+        "--agent-one",
+        choices=["heuristic-mcts", "policy-mcts", "mobility-heuristic", "random-legal"],
+        default="heuristic-mcts",
+    )
+    parser.add_argument(
+        "--agent-two",
+        choices=["heuristic-mcts", "policy-mcts", "mobility-heuristic", "random-legal"],
+        default="mobility-heuristic",
+    )
+    parser.add_argument("--checkpoint-id", default=None)
+    parser.add_argument("--simulations", type=int, default=24)
+    parser.add_argument("--candidate-limit", type=int, default=12)
+    parser.add_argument("--rollout-depth", type=int, default=4)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     rows = run_paired_tournament(
-        AgentConfig(agent_id="heuristic-mcts", simulations=24, candidate_limit=12, rollout_depth=4),
-        AgentConfig(agent_id="mobility-heuristic"),
+        AgentConfig(
+            agent_id=args.agent_one,
+            checkpoint_id=args.checkpoint_id,
+            simulations=args.simulations,
+            candidate_limit=args.candidate_limit,
+            rollout_depth=args.rollout_depth,
+        ),
+        AgentConfig(
+            agent_id=args.agent_two,
+            checkpoint_id=args.checkpoint_id,
+            simulations=args.simulations,
+            candidate_limit=args.candidate_limit,
+            rollout_depth=args.rollout_depth,
+        ),
         games=args.games,
+        max_turns=args.max_turns,
+        progress_callback=lambda seat_name, game_index, total_games: print(
+            f"[evaluation] {seat_name} game {game_index}/{total_games}",
+            flush=True,
+        ),
     )
     if args.json:
         print(json.dumps([row.__dict__ for row in rows], indent=2))

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
-from typing import Iterable, Optional, Union
+from typing import Callable, Iterable, Optional, Union
 
 from blokus_ai.ai.agents import build_agent
-from blokus_ai.engine.game import apply_move, create_initial_state, has_legal_move, is_terminal, normalized_score_margin_for_color, pass_move_for_color, result
+from blokus_ai.engine.game import (
+    apply_move,
+    create_initial_state,
+    has_legal_move,
+    is_terminal,
+    normalized_score_margin_for_color,
+    pass_move_for_color,
+    result,
+)
 from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant
 from blokus_ai.training.encoding import PASS_ACTION_INDEX, encode_action, legal_action_indices
 
@@ -27,7 +36,9 @@ def generate_self_play_records(
     output_path: Union[str, Path],
     config: Optional[GameConfig] = None,
     agent_config: Optional[AgentConfig] = None,
-) -> None:
+    progress_every: int = 10,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> Path:
     config = config or GameConfig(variant=GameVariant.PAIRED_2)
     agent_config = agent_config or AgentConfig(agent_id="heuristic-mcts", simulations=64)
     agent = build_agent(agent_config)
@@ -91,3 +102,76 @@ def generate_self_play_records(
             for record in _finalize_trace(trace, state):
                 record["perspective_color"] = record["perspective_color"].value
                 handle.write(json.dumps(record) + "\n")
+
+            completed_games = game_index + 1
+            if (
+                progress_callback is not None
+                and progress_every > 0
+                and (completed_games % progress_every == 0 or completed_games == games)
+            ):
+                progress_callback(completed_games, games)
+
+    return output_file
+
+
+def build_self_play_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate paired-2 Blokus self-play traces.")
+    parser.add_argument("--games", type=int, default=256)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("artifacts/self_play/paired2-bootstrap.jsonl"),
+    )
+    parser.add_argument(
+        "--variant",
+        choices=[variant.value for variant in GameVariant],
+        default=GameVariant.PAIRED_2.value,
+    )
+    parser.add_argument("--agent-id", default="heuristic-mcts")
+    parser.add_argument("--checkpoint-id", default=None)
+    parser.add_argument("--simulations", type=int, default=32)
+    parser.add_argument("--candidate-limit", type=int, default=12)
+    parser.add_argument("--rollout-depth", type=int, default=3)
+    parser.add_argument("--exploration-weight", type=float, default=1.15)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--progress-every", type=int, default=10)
+    return parser
+
+
+def main() -> None:
+    parser = build_self_play_arg_parser()
+    args = parser.parse_args()
+    output_path = generate_self_play_records(
+        games=args.games,
+        output_path=args.output,
+        config=GameConfig(variant=GameVariant(args.variant)),
+        agent_config=AgentConfig(
+            agent_id=args.agent_id,
+            checkpoint_id=args.checkpoint_id,
+            simulations=args.simulations,
+            candidate_limit=args.candidate_limit,
+            rollout_depth=args.rollout_depth,
+            exploration_weight=args.exploration_weight,
+            seed=args.seed,
+        ),
+        progress_every=args.progress_every,
+        progress_callback=lambda completed, total: print(
+            f"[self-play] completed {completed}/{total} games",
+            flush=True,
+        ),
+    )
+    print(
+        json.dumps(
+            {
+                "games": args.games,
+                "output": str(output_path),
+                "agent_id": args.agent_id,
+                "variant": args.variant,
+            },
+            indent=2,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

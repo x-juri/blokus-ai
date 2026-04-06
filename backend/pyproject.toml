@@ -10,6 +10,7 @@ authors = [
 ]
 dependencies = [
   "fastapi>=0.128.0",
+  "numpy>=2.1.0",
   "pydantic>=2.7.0",
   "torch>=2.4.0",
   "uvicorn>=0.30.0"
@@ -21,6 +22,12 @@ dev = [
   "pytest>=8.4.0",
   "ruff>=0.6.0"
 ]
+
+[project.scripts]
+blokus-self-play = "blokus_ai.training.self_play:main"
+blokus-train = "blokus_ai.training.train:main"
+blokus-phase1 = "blokus_ai.training.pipeline:main"
+blokus-benchmark = "blokus_ai.ai.benchmark:main"
 
 [build-system]
 requires = ["setuptools>=69.0"]

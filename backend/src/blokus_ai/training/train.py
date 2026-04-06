@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from blokus_ai.engine.models import BoardState
 from blokus_ai.training.encoding import ACTION_SPACE_SIZE, encode_state
@@ -95,6 +96,7 @@ def train_policy_value_network(
             "batch_size": batch_size,
             "records_path": str(records_path),
             "mean_loss": sum(losses) / len(losses),
+            "learning_rate": learning_rate,
         },
     )
 
@@ -104,6 +106,7 @@ def train_policy_value_network(
         "records": len(records),
         "epochs": epochs,
         "batch_size": batch_size,
+        "learning_rate": learning_rate,
         "mean_loss": sum(losses) / len(losses),
     }
     if report_path is not None:
@@ -111,3 +114,37 @@ def train_policy_value_network(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
+
+
+def build_train_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train a Blokus policy/value checkpoint from JSONL traces.")
+    parser.add_argument("--records", type=Path, required=True)
+    parser.add_argument("--checkpoint-id", required=True)
+    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Optional JSON report path.",
+    )
+    return parser
+
+
+def main() -> None:
+    parser = build_train_arg_parser()
+    args = parser.parse_args()
+    report = train_policy_value_network(
+        records_path=args.records,
+        checkpoint_id=args.checkpoint_id,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        report_path=args.report,
+    )
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()

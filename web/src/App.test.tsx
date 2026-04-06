@@ -110,6 +110,8 @@ test("switches to play mode and starts a paired-two game", async () => {
   render(<App />);
   await user.click(await screen.findByRole("button", { name: "Play" }));
   expect(await screen.findByText("Human Vs AI")).toBeInTheDocument();
+  expect(screen.getByLabelText("AI speed")).toHaveValue("fast");
+  expect(screen.getByLabelText("Replay preset")).toHaveValue("fast");
   await user.click(screen.getByRole("button", { name: "Play blue/red" }));
   expect(await screen.findByText("Active Pieces")).toBeInTheDocument();
   expect(screen.getByText("AI Vs AI")).toBeInTheDocument();

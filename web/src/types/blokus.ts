@@ -3,6 +3,7 @@ export type GameVariant = "standard-4" | "paired-2" | "shared-3";
 export type AgentId = "heuristic-mcts" | "policy-mcts" | "mobility-heuristic" | "random-legal";
 export type TeamId = "player_a" | "player_b";
 export type AppMode = "workbench" | "play";
+export type AiPresetId = "fast" | "balanced" | "strong";
 
 export interface Coordinate {
   row: number;

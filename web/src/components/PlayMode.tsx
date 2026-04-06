@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { applyMove, fetchPieces, fetchReplayGame, newGame, runAiTurn } from "../api/client";
-import { playerColors } from "../constants/pieces";
 import type {
-  AgentConfig,
+  AiPresetId,
   BoardState,
   Coordinate,
   Move,
@@ -12,28 +11,13 @@ import type {
   ReplayGameResponse,
   TeamId
 } from "../types/blokus";
+import { aiPresetDescriptions, aiPresetLabels, buildLiveAgentConfig, buildReplayAgents } from "../utils/agents";
 import { coordinatesToSet, isPlacementValid, pieceCellsForId, placePieceAtAnchor } from "../utils/pieces";
 import { humanControlsColor, isTerminalState, summarizeGame, teamForColor } from "../utils/state";
 import { BoardGrid } from "./BoardGrid";
 import { PieceMiniature } from "./PieceMiniature";
 
 const pairedConfig = { variant: "paired-2" } as const;
-const defaultAiAgent: AgentConfig = {
-  agent_id: "policy-mcts",
-  simulations: 96,
-  candidate_limit: 24,
-  rollout_depth: 8
-};
-
-const defaultReplayAgents: Record<TeamId, AgentConfig> = {
-  player_a: defaultAiAgent,
-  player_b: {
-    agent_id: "heuristic-mcts",
-    simulations: 96,
-    candidate_limit: 24,
-    rollout_depth: 8
-  }
-};
 
 function formatMove(move: Move, index: number): string {
   if (move.is_pass) {
@@ -72,6 +56,8 @@ export function PlayMode() {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySeed, setReplaySeed] = useState(7);
   const [replayBusy, setReplayBusy] = useState(false);
+  const [livePreset, setLivePreset] = useState<AiPresetId>("fast");
+  const [replayPreset, setReplayPreset] = useState<AiPresetId>("fast");
 
   useEffect(() => {
     void fetchPieces().then(setPieces);
@@ -114,7 +100,7 @@ export function PlayMode() {
       setBusy(true);
       setErrorMessage("");
       try {
-        const response = await runAiTurn(currentState, defaultAiAgent);
+        const response = await runAiTurn(currentState, buildLiveAgentConfig(livePreset));
         if (cancelled) {
           return;
         }
@@ -138,7 +124,7 @@ export function PlayMode() {
     return () => {
       cancelled = true;
     };
-  }, [busy, gameState, isHumanTurn]);
+  }, [busy, gameState, isHumanTurn, livePreset]);
 
   useEffect(() => {
     if (!replayPlaying || !replayData) {
@@ -173,7 +159,8 @@ export function PlayMode() {
       setSelectedPlacement(null);
       setHoveredCell(null);
       setStatusMessage(
-        `Started a paired-2 game. You control ${nextHumanSide === "player_a" ? "blue/red" : "yellow/green"}.`
+        `Started a paired-2 game. You control ${nextHumanSide === "player_a" ? "blue/red" : "yellow/green"}. `
+          + `Live AI preset: ${aiPresetLabels[livePreset]}.`
       );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not create a new game.");
@@ -286,11 +273,13 @@ export function PlayMode() {
     setReplayBusy(true);
     setErrorMessage("");
     try {
-      const replay = await fetchReplayGame(replaySeed, defaultReplayAgents, pairedConfig);
+      const replay = await fetchReplayGame(replaySeed, buildReplayAgents(replayPreset), pairedConfig);
       setReplayData(replay);
       setReplayIndex(0);
       setReplayPlaying(false);
-      setStatusMessage(`Generated AI replay with seed ${replay.seed}.`);
+      setStatusMessage(
+        `Generated AI replay with seed ${replay.seed} using the ${aiPresetLabels[replayPreset]} preset.`
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Replay generation failed.");
     } finally {
@@ -354,6 +343,21 @@ export function PlayMode() {
                 Play yellow/green
               </button>
             </div>
+
+            <label className="field">
+              <span>AI speed</span>
+              <select
+                value={livePreset}
+                onChange={(event) => setLivePreset(event.target.value as AiPresetId)}
+              >
+                {(["fast", "balanced", "strong"] as AiPresetId[]).map((preset) => (
+                  <option key={preset} value={preset}>
+                    {aiPresetLabels[preset]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="caption">{aiPresetDescriptions[livePreset]}</p>
 
             {gameState ? (
               <div className="game-meta-grid">
@@ -511,6 +515,19 @@ export function PlayMode() {
         </div>
 
         <div className="replay-toolbar">
+          <label className="field">
+            <span>Replay preset</span>
+            <select
+              value={replayPreset}
+              onChange={(event) => setReplayPreset(event.target.value as AiPresetId)}
+            >
+              {(["fast", "balanced", "strong"] as AiPresetId[]).map((preset) => (
+                <option key={preset} value={preset}>
+                  {aiPresetLabels[preset]}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="field">
             <span>Seed</span>
             <input
