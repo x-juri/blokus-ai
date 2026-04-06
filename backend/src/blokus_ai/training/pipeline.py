@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from blokus_ai.ai.benchmark import run_paired_tournament
-from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant
+from blokus_ai.engine.models import AgentConfig, AgentId, GameConfig, GameVariant
 from blokus_ai.training.self_play import generate_self_play_records
 from blokus_ai.training.train import train_policy_value_network
 
@@ -13,29 +13,37 @@ from blokus_ai.training.train import train_policy_value_network
 def run_phase_one_bootstrap(
     checkpoint_id: str,
     games: int = 512,
-    simulations: int = 32,
-    candidate_limit: int = 12,
-    rollout_depth: int = 3,
+    self_play_agent_id: AgentId = "mobility-heuristic",
+    simulations: int = 8,
+    candidate_limit: int = 6,
+    rollout_depth: int = 1,
     epochs: int = 3,
     batch_size: int = 16,
     learning_rate: float = 1e-3,
     evaluation_games: int = 12,
+    progress_every: int = 10,
 ) -> dict:
     artifacts_root = Path("artifacts")
     self_play_path = artifacts_root / "self_play" / f"{checkpoint_id}.jsonl"
     report_path = artifacts_root / "reports" / f"{checkpoint_id}.json"
 
+    print(
+        "[phase1:self-play] starting "
+        f"{games} games with {self_play_agent_id} "
+        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth})",
+        flush=True,
+    )
     generate_self_play_records(
         games=games,
         output_path=self_play_path,
         config=GameConfig(variant=GameVariant.PAIRED_2),
         agent_config=AgentConfig(
-            agent_id="heuristic-mcts",
+            agent_id=self_play_agent_id,
             simulations=simulations,
             candidate_limit=candidate_limit,
             rollout_depth=rollout_depth,
         ),
-        progress_every=10,
+        progress_every=progress_every,
         progress_callback=lambda completed, total: print(
             f"[phase1:self-play] completed {completed}/{total} games",
             flush=True,
@@ -57,6 +65,12 @@ def run_phase_one_bootstrap(
         flush=True,
     )
 
+    print(
+        "[phase1:evaluation] starting "
+        f"{evaluation_games} games per seat with policy-mcts vs heuristic-mcts "
+        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth})",
+        flush=True,
+    )
     tournament_rows = run_paired_tournament(
         AgentConfig(
             agent_id="policy-mcts",
@@ -94,13 +108,19 @@ def build_phase_one_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the Phase 1 paired-2 RL bootstrap workflow.")
     parser.add_argument("--checkpoint-id", required=True)
     parser.add_argument("--games", type=int, default=512)
-    parser.add_argument("--simulations", type=int, default=32)
-    parser.add_argument("--candidate-limit", type=int, default=12)
-    parser.add_argument("--rollout-depth", type=int, default=3)
+    parser.add_argument(
+        "--self-play-agent-id",
+        choices=["heuristic-mcts", "mobility-heuristic", "random-legal"],
+        default="mobility-heuristic",
+    )
+    parser.add_argument("--simulations", type=int, default=8)
+    parser.add_argument("--candidate-limit", type=int, default=6)
+    parser.add_argument("--rollout-depth", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--evaluation-games", type=int, default=12)
+    parser.add_argument("--progress-every", type=int, default=10)
     return parser
 
 
@@ -110,6 +130,7 @@ def main() -> None:
     summary = run_phase_one_bootstrap(
         checkpoint_id=args.checkpoint_id,
         games=args.games,
+        self_play_agent_id=args.self_play_agent_id,
         simulations=args.simulations,
         candidate_limit=args.candidate_limit,
         rollout_depth=args.rollout_depth,
@@ -117,6 +138,7 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         evaluation_games=args.evaluation_games,
+        progress_every=args.progress_every,
     )
     print(json.dumps(summary, indent=2))
 

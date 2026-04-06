@@ -44,6 +44,7 @@ def generate_self_play_records(
     agent = build_agent(agent_config)
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    effective_progress_every = progress_every if games >= progress_every else 1
 
     with output_file.open("w", encoding="utf-8") as handle:
         for game_index in range(games):
@@ -106,8 +107,11 @@ def generate_self_play_records(
             completed_games = game_index + 1
             if (
                 progress_callback is not None
-                and progress_every > 0
-                and (completed_games % progress_every == 0 or completed_games == games)
+                and effective_progress_every > 0
+                and (
+                    completed_games % effective_progress_every == 0
+                    or completed_games == games
+                )
             ):
                 progress_callback(completed_games, games)
 
@@ -141,6 +145,13 @@ def build_self_play_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_self_play_arg_parser()
     args = parser.parse_args()
+    print(
+        "[self-play] starting "
+        f"{args.games} games with {args.agent_id} "
+        f"(simulations={args.simulations}, candidate_limit={args.candidate_limit}, "
+        f"rollout_depth={args.rollout_depth})",
+        flush=True,
+    )
     output_path = generate_self_play_records(
         games=args.games,
         output_path=args.output,

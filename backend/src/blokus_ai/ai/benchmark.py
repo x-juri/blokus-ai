@@ -106,11 +106,19 @@ def main() -> None:
         default="mobility-heuristic",
     )
     parser.add_argument("--checkpoint-id", default=None)
-    parser.add_argument("--simulations", type=int, default=24)
-    parser.add_argument("--candidate-limit", type=int, default=12)
-    parser.add_argument("--rollout-depth", type=int, default=4)
+    parser.add_argument("--simulations", type=int, default=8)
+    parser.add_argument("--candidate-limit", type=int, default=6)
+    parser.add_argument("--rollout-depth", type=int, default=1)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+
+    print(
+        "[evaluation] starting paired tournament "
+        f"{args.agent_one} vs {args.agent_two} "
+        f"(games={args.games}, max_turns={args.max_turns}, simulations={args.simulations}, "
+        f"candidate_limit={args.candidate_limit}, rollout_depth={args.rollout_depth})",
+        flush=True,
+    )
 
     rows = run_paired_tournament(
         AgentConfig(

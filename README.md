@@ -118,13 +118,13 @@ uv run blokus-self-play \
   --games 1000 \
   --output artifacts/self_play/paired2-bootstrap.jsonl \
   --agent-id heuristic-mcts \
-  --simulations 32 \
-  --candidate-limit 12 \
-  --rollout-depth 3
+  --simulations 8 \
+  --candidate-limit 6 \
+  --rollout-depth 1
 ```
 
-This prints progress every 10 completed self-play games by default. You can change that with
-`--progress-every`.
+This now prints an immediate start banner plus progress every 10 completed self-play games by
+default. You can change that with `--progress-every`.
 
 ### 2. Train a checkpoint
 
@@ -146,13 +146,14 @@ uv run blokus-benchmark \
   --checkpoint-id paired2-bootstrap-v1 \
   --games 20 \
   --max-turns 160 \
-  --simulations 32 \
-  --candidate-limit 12 \
-  --rollout-depth 3 \
+  --simulations 8 \
+  --candidate-limit 6 \
+  --rollout-depth 1 \
   --json
 ```
 
-The benchmark command now prints evaluation progress for each seat-swapped game as it starts.
+The benchmark command now prints an immediate start banner plus evaluation progress for each
+seat-swapped game as it starts.
 
 ### 4. Or run the whole Phase 1 bootstrap in one command
 
@@ -160,14 +161,28 @@ The benchmark command now prints evaluation progress for each seat-swapped game 
 uv run blokus-phase1 \
   --checkpoint-id paired2-bootstrap-v1 \
   --games 1000 \
+  --self-play-agent-id mobility-heuristic \
   --epochs 3 \
   --evaluation-games 20
 ```
 
 `blokus-phase1` streams stage progress:
+- self-play start banner immediately
 - self-play progress every 10 games
 - training start/finish
+- evaluation start banner immediately
 - evaluation progress for each game
+
+For a quick smoke run, start smaller:
+
+```bash
+uv run blokus-phase1 \
+  --checkpoint-id smoke-v1 \
+  --games 20 \
+  --self-play-agent-id mobility-heuristic \
+  --epochs 1 \
+  --evaluation-games 2
+```
 
 Artifacts are written under `backend/artifacts/`:
 
