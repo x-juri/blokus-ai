@@ -97,6 +97,8 @@ The frontend expects the backend at `http://127.0.0.1:8000` by default.
 - `policy-mcts`
 
 `policy-mcts` automatically falls back to heuristic search when no checkpoint is available.
+When a checkpoint is present, it still keeps a heuristic candidate floor and blends heuristic
+and model leaf values so weak checkpoints do not completely override the baseline search.
 
 ### Phase 1 learning model
 
@@ -106,6 +108,9 @@ The RL system does not train during human games. Learning is currently offline:
 2. Train a policy/value checkpoint from those sparse visit targets.
 3. Evaluate that checkpoint against heuristic MCTS.
 4. Use the latest checkpoint in `Balanced` and `Strong` play presets.
+
+Training reports now include separate train and validation policy, value, and total losses. That
+is a more reliable signal than `mean_loss` alone when deciding whether a checkpoint is worth using.
 
 ## Phase 1 training workflow
 
@@ -134,8 +139,15 @@ uv run blokus-train \
   --checkpoint-id paired2-bootstrap-v1 \
   --epochs 3 \
   --batch-size 16 \
+  --validation-split 0.1 \
   --report artifacts/reports/paired2-bootstrap-v1.json
 ```
+
+The JSON report now includes:
+- `train_policy_loss`, `train_value_loss`, `train_total_loss`
+- `validation_policy_loss`, `validation_value_loss`, `validation_total_loss`
+- `best_epoch`
+- `epoch_metrics`
 
 ### 3. Evaluate it against the heuristic baseline
 

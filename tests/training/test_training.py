@@ -20,6 +20,7 @@ from blokus_ai.training.model import (
     save_policy_value_checkpoint,
 )
 from blokus_ai.training.self_play import generate_self_play_records
+from blokus_ai.training.train import train_policy_value_network
 
 
 def test_action_encoding_round_trip_for_opening_move() -> None:
@@ -66,3 +67,37 @@ def test_self_play_progress_callback_reports_final_batch(tmp_path: Path) -> None
         progress_callback=lambda completed, total: progress_calls.append((completed, total)),
     )
     assert progress_calls == [(2, 3), (3, 3)]
+
+
+def test_training_report_includes_validation_diagnostics(tmp_path: Path) -> None:
+    if sys.version_info < (3, 12):
+        pytest.skip("Torch-backed training tests require the project Python 3.12+ environment.")
+
+    output_path = tmp_path / "training.jsonl"
+    report_path = tmp_path / "training-report.json"
+    generate_self_play_records(
+        games=2,
+        output_path=output_path,
+        config=GameConfig(variant=GameVariant.PAIRED_2),
+        agent_config=AgentConfig(agent_id="random-legal", seed=5),
+    )
+
+    report = train_policy_value_network(
+        records_path=output_path,
+        checkpoint_id="unit-test-diagnostics",
+        epochs=1,
+        batch_size=8,
+        validation_split=0.2,
+        seed=11,
+        report_path=report_path,
+    )
+
+    assert report["records"] > 0
+    assert report["train_records"] + report["validation_records"] == report["records"]
+    assert report["train_policy_loss"] >= 0.0
+    assert report["train_value_loss"] >= 0.0
+    assert report["train_total_loss"] >= 0.0
+    assert report["validation_total_loss"] is not None
+    assert report["best_epoch"] == 1
+    assert len(report["epoch_metrics"]) == 1
+    assert report_path.exists()

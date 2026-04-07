@@ -60,8 +60,13 @@ def run_phase_one_bootstrap(
         report_path=report_path,
     )
     print(
-        f"[phase1:train] finished checkpoint {checkpoint_id} with mean loss "
-        f"{training_report['mean_loss']:.4f}",
+        f"[phase1:train] finished checkpoint {checkpoint_id} with "
+        f"train total {training_report['train_total_loss']:.4f}"
+        + (
+            ""
+            if training_report["validation_total_loss"] is None
+            else f", validation total {training_report['validation_total_loss']:.4f}"
+        ),
         flush=True,
     )
 

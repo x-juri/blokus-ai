@@ -37,6 +37,98 @@ def _softmax(scores: list[float]) -> list[float]:
     return [value / total for value in exponentials]
 
 
+def _clamp_unit(value: float) -> float:
+    return max(-1.0, min(1.0, value))
+
+
+def _move_key(move: Move) -> str:
+    return (
+        f"{move.piece_id}:{move.rotation}:{int(move.reflection)}:"
+        f"{move.anchor_cell.row}:{move.anchor_cell.col}:{int(move.is_pass)}"
+    )
+
+
+def _normalize_candidate_entries(entries: list[tuple[Move, float]]) -> list[tuple[Move, float]]:
+    if not entries:
+        return []
+    total = sum(max(0.0, prior) for _, prior in entries)
+    if total <= 0.0:
+        uniform = 1.0 / len(entries)
+        return [(move, uniform) for move, _ in entries]
+    return [(move, max(0.0, prior) / total) for move, prior in entries]
+
+
+def _blend_candidate_entries(
+    heuristic_entries: list[tuple[Move, float]],
+    policy_entries: list[tuple[Move, float]],
+    candidate_limit: int,
+    heuristic_floor_fraction: float,
+    heuristic_prior_weight: float,
+    policy_prior_weight: float,
+) -> list[tuple[Move, float]]:
+    if candidate_limit <= 0:
+        return []
+    if not heuristic_entries:
+        return _normalize_candidate_entries(policy_entries[:candidate_limit])
+    if not policy_entries:
+        return _normalize_candidate_entries(heuristic_entries[:candidate_limit])
+
+    heuristic_subset = _normalize_candidate_entries(heuristic_entries[:candidate_limit])
+    policy_subset = _normalize_candidate_entries(policy_entries[:candidate_limit])
+    heuristic_lookup = {_move_key(move): (move, prior) for move, prior in heuristic_subset}
+    policy_lookup = {_move_key(move): (move, prior) for move, prior in policy_subset}
+
+    combined_scores: dict[str, float] = {}
+    for move_key in set(heuristic_lookup) | set(policy_lookup):
+        heuristic_prior = heuristic_lookup.get(move_key, (None, 0.0))[1]
+        policy_prior = policy_lookup.get(move_key, (None, 0.0))[1]
+        combined_scores[move_key] = (
+            heuristic_prior_weight * heuristic_prior
+            + policy_prior_weight * policy_prior
+        )
+
+    heuristic_floor = min(
+        len(heuristic_subset),
+        max(1, math.ceil(candidate_limit * heuristic_floor_fraction)),
+    )
+    selected_keys = [_move_key(move) for move, _ in heuristic_subset[:heuristic_floor]]
+
+    for move_key, _ in sorted(
+        combined_scores.items(),
+        key=lambda item: (
+            item[1],
+            heuristic_lookup.get(item[0], (None, 0.0))[1],
+            policy_lookup.get(item[0], (None, 0.0))[1],
+        ),
+        reverse=True,
+    ):
+        if move_key in selected_keys:
+            continue
+        selected_keys.append(move_key)
+        if len(selected_keys) >= candidate_limit:
+            break
+
+    for entries in (heuristic_subset, policy_subset):
+        for move, _ in entries:
+            move_key = _move_key(move)
+            if move_key in selected_keys:
+                continue
+            selected_keys.append(move_key)
+            if len(selected_keys) >= candidate_limit:
+                break
+        if len(selected_keys) >= candidate_limit:
+            break
+
+    blended_entries = [
+        (
+            heuristic_lookup[move_key][0] if move_key in heuristic_lookup else policy_lookup[move_key][0],
+            combined_scores.get(move_key, 0.0),
+        )
+        for move_key in selected_keys[:candidate_limit]
+    ]
+    return _normalize_candidate_entries(blended_entries)
+
+
 @dataclass
 class SearchEdge:
     move: Move
@@ -186,10 +278,7 @@ class MCTSAgent:
         )
 
     def _move_key(self, move: Move) -> str:
-        return (
-            f"{move.piece_id}:{move.rotation}:{int(move.reflection)}:"
-            f"{move.anchor_cell.row}:{move.anchor_cell.col}:{int(move.is_pass)}"
-        )
+        return _move_key(move)
 
     def _candidate_entries(
         self,
@@ -259,6 +348,11 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
         )
         self.checkpoint_id = checkpoint_id
         self.loaded_checkpoint = load_policy_value_checkpoint(checkpoint_id)
+        self.heuristic_floor_fraction = 0.5
+        self.heuristic_prior_weight = 0.65
+        self.policy_prior_weight = 0.35
+        self.heuristic_value_weight = 0.7
+        self.model_value_weight = 0.3
         self.fallback_agent = MCTSAgent(
             simulations=simulations,
             candidate_limit=candidate_limit,
@@ -276,6 +370,12 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
 
         summary = super().search(state, top_k=top_k)
         summary.diagnostics["checkpoint_id"] = self.loaded_checkpoint.checkpoint_id
+        summary.diagnostics["candidate_strategy"] = "hybrid-policy-heuristic"
+        summary.diagnostics["heuristic_prior_weight"] = self.heuristic_prior_weight
+        summary.diagnostics["policy_prior_weight"] = self.policy_prior_weight
+        summary.diagnostics["heuristic_floor_fraction"] = self.heuristic_floor_fraction
+        summary.diagnostics["heuristic_value_weight"] = self.heuristic_value_weight
+        summary.diagnostics["model_value_weight"] = self.model_value_weight
         return summary
 
     def _candidate_entries(
@@ -288,23 +388,31 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
 
         import torch
 
+        heuristic_entries = self.fallback_agent._candidate_entries(state, root_color)
         legal_indices = legal_action_indices(state)
         if not legal_indices:
-            return []
+            return heuristic_entries
 
         spatial_inputs, metadata_inputs = encode_state_tensors(state)
         with torch.no_grad():
             policy_logits, _ = self.loaded_checkpoint.model(spatial_inputs, metadata_inputs)
         priors_by_action = action_priors_from_logits(policy_logits[0], legal_indices)
-        ranked_actions = sorted(
+        policy_entries = [
+            (decode_action(action_index, state.active_color), prior)
+            for action_index, prior in sorted(
             priors_by_action.items(),
             key=lambda item: item[1],
             reverse=True,
         )[: self.candidate_limit]
-        return [
-            (decode_action(action_index, state.active_color), prior)
-            for action_index, prior in ranked_actions
         ]
+        return _blend_candidate_entries(
+            heuristic_entries=heuristic_entries,
+            policy_entries=policy_entries,
+            candidate_limit=self.candidate_limit,
+            heuristic_floor_fraction=self.heuristic_floor_fraction,
+            heuristic_prior_weight=self.heuristic_prior_weight,
+            policy_prior_weight=self.policy_prior_weight,
+        )
 
     def _evaluate_leaf(self, state: BoardState, root_color: PlayerColor) -> float:
         if self.loaded_checkpoint is None or state.variant != GameVariant.PAIRED_2:
@@ -314,7 +422,12 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
 
         import torch
 
+        heuristic_estimate = self.fallback_agent._evaluate_leaf(state, root_color)
         spatial_inputs, metadata_inputs = encode_state_tensors(state)
         with torch.no_grad():
             _, values = self.loaded_checkpoint.model(spatial_inputs, metadata_inputs)
-        return float(values.item()) * perspective_sign(state, root_color)
+        model_estimate = float(values.item()) * perspective_sign(state, root_color)
+        return _clamp_unit(
+            self.heuristic_value_weight * heuristic_estimate
+            + self.model_value_weight * model_estimate
+        )
