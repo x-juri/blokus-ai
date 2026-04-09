@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -11,6 +12,7 @@ from blokus_ai.engine.game import (
     create_initial_state,
     has_legal_move,
     is_terminal,
+    legal_moves_or_pass,
     owner_group,
     pass_move_for_color,
     result,
@@ -27,14 +29,52 @@ class TournamentRow:
     wins: int
 
 
+def _derive_seed(base_seed: Optional[int], game_index: int, salt: int = 0) -> Optional[int]:
+    if base_seed is None:
+        return None
+    return base_seed + salt * 10_000 + game_index
+
+
+def _config_with_seed(agent_config: AgentConfig, seed: Optional[int]) -> AgentConfig:
+    if seed is None:
+        return agent_config
+    return agent_config.model_copy(update={"seed": seed})
+
+
+def build_seeded_opening_state(
+    config: GameConfig | None = None,
+    opening_seed: Optional[int] = None,
+    opening_plies: int = 0,
+):
+    state = create_initial_state(config or GameConfig(variant=GameVariant.PAIRED_2))
+    if opening_seed is None or opening_plies <= 0:
+        return state
+
+    opening_rng = random.Random(opening_seed)
+    for _ in range(opening_plies):
+        if is_terminal(state):
+            break
+        moves = legal_moves_or_pass(state)
+        if not moves:
+            break
+        state = apply_move(state, opening_rng.choice(moves))
+    return state
+
+
 def play_game(
     player_a_agent_config: AgentConfig,
     player_b_agent_config: AgentConfig,
     config: GameConfig | None = None,
     max_turns: int = 512,
+    opening_seed: Optional[int] = None,
+    opening_plies: int = 0,
 ) -> tuple[float, str | None]:
     config = config or GameConfig(variant=GameVariant.PAIRED_2)
-    state = create_initial_state(config)
+    state = build_seeded_opening_state(
+        config=config,
+        opening_seed=opening_seed,
+        opening_plies=opening_plies,
+    )
     agents = {
         "player_a": build_agent(player_a_agent_config),
         "player_b": build_agent(player_b_agent_config),
@@ -62,20 +102,33 @@ def run_paired_tournament(
     agent_two: AgentConfig,
     games: int = 4,
     max_turns: int = 512,
+    base_seed: int = 7,
+    opening_plies: int = 4,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
 ) -> list[TournamentRow]:
     rows: list[TournamentRow] = []
-    matchups = [
-        ("player_a", agent_one, agent_two),
-        ("player_b", agent_two, agent_one),
-    ]
-    for seat_name, player_a_config, player_b_config in matchups:
+    for seat_name in ("player_a", "player_b"):
         margins: list[float] = []
         wins = 0
         for game_index in range(games):
             if progress_callback is not None:
                 progress_callback(seat_name, game_index + 1, games)
-            margin, winner = play_game(player_a_config, player_b_config, max_turns=max_turns)
+            agent_one_seed = _derive_seed(base_seed, game_index, salt=1)
+            agent_two_seed = _derive_seed(base_seed, game_index, salt=2)
+            opening_seed = _derive_seed(base_seed, game_index, salt=3)
+            if seat_name == "player_a":
+                player_a_config = _config_with_seed(agent_one, agent_one_seed)
+                player_b_config = _config_with_seed(agent_two, agent_two_seed)
+            else:
+                player_a_config = _config_with_seed(agent_two, agent_two_seed)
+                player_b_config = _config_with_seed(agent_one, agent_one_seed)
+            margin, winner = play_game(
+                player_a_config,
+                player_b_config,
+                max_turns=max_turns,
+                opening_seed=opening_seed,
+                opening_plies=opening_plies,
+            )
             normalized_margin = margin if seat_name == "player_a" else -margin
             margins.append(normalized_margin)
             if winner == seat_name:
@@ -109,6 +162,8 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=8)
     parser.add_argument("--candidate-limit", type=int, default=6)
     parser.add_argument("--rollout-depth", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--opening-plies", type=int, default=4)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -116,7 +171,8 @@ def main() -> None:
         "[evaluation] starting paired tournament "
         f"{args.agent_one} vs {args.agent_two} "
         f"(games={args.games}, max_turns={args.max_turns}, simulations={args.simulations}, "
-        f"candidate_limit={args.candidate_limit}, rollout_depth={args.rollout_depth})",
+        f"candidate_limit={args.candidate_limit}, rollout_depth={args.rollout_depth}, "
+        f"seed={args.seed}, opening_plies={args.opening_plies})",
         flush=True,
     )
 
@@ -137,6 +193,8 @@ def main() -> None:
         ),
         games=args.games,
         max_turns=args.max_turns,
+        base_seed=args.seed,
+        opening_plies=args.opening_plies,
         progress_callback=lambda seat_name, game_index, total_games: print(
             f"[evaluation] {seat_name} game {game_index}/{total_games}",
             flush=True,

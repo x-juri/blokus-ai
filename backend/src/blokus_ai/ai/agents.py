@@ -33,11 +33,14 @@ class BaseAgent:
 class RandomLegalAgent(BaseAgent):
     seed: int = 0
     name: str = "random-legal"
+    rng: random.Random = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.rng = random.Random(self.seed)
 
     def suggest(self, state: BoardState, top_k: int = 1) -> list[MoveSuggestion]:
-        rng = random.Random(self.seed)
         moves = legal_moves_or_pass(state)
-        rng.shuffle(moves)
+        self.rng.shuffle(moves)
         suggestions = []
         for move in moves[:top_k]:
             rationale = "Random legal baseline." if not move.is_pass else "No legal move available."
@@ -153,6 +156,9 @@ def build_agent(agent_config: Optional[AgentConfig] = None) -> BaseAgent:
             rollout_depth=config.rollout_depth or 8,
             exploration_weight=config.exploration_weight or 1.15,
             checkpoint_id=config.checkpoint_id,
+            seed=config.seed,
+            root_dirichlet_alpha=config.root_dirichlet_alpha or 0.0,
+            root_exploration_fraction=config.root_exploration_fraction or 0.0,
         )
 
     from blokus_ai.ai.mcts import MCTSAgent
@@ -162,4 +168,7 @@ def build_agent(agent_config: Optional[AgentConfig] = None) -> BaseAgent:
         candidate_limit=config.candidate_limit or 24,
         rollout_depth=config.rollout_depth or 8,
         exploration_weight=config.exploration_weight or 1.15,
+        seed=config.seed,
+        root_dirichlet_alpha=config.root_dirichlet_alpha or 0.0,
+        root_exploration_fraction=config.root_exploration_fraction or 0.0,
     )

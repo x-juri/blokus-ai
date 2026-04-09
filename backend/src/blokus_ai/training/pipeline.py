@@ -21,6 +21,12 @@ def run_phase_one_bootstrap(
     batch_size: int = 16,
     learning_rate: float = 1e-3,
     evaluation_games: int = 12,
+    seed: int = 7,
+    evaluation_opening_plies: int = 4,
+    root_dirichlet_alpha: float = 0.3,
+    root_exploration_fraction: float = 0.25,
+    sampling_temperature: float = 1.0,
+    sampling_moves: int = 16,
     progress_every: int = 10,
 ) -> dict:
     artifacts_root = Path("artifacts")
@@ -30,7 +36,10 @@ def run_phase_one_bootstrap(
     print(
         "[phase1:self-play] starting "
         f"{games} games with {self_play_agent_id} "
-        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth})",
+        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth}, "
+        f"root_dirichlet_alpha={root_dirichlet_alpha}, "
+        f"root_exploration_fraction={root_exploration_fraction}, "
+        f"sampling_temperature={sampling_temperature}, sampling_moves={sampling_moves})",
         flush=True,
     )
     generate_self_play_records(
@@ -42,7 +51,14 @@ def run_phase_one_bootstrap(
             simulations=simulations,
             candidate_limit=candidate_limit,
             rollout_depth=rollout_depth,
+            root_dirichlet_alpha=root_dirichlet_alpha,
+            root_exploration_fraction=root_exploration_fraction,
+            sampling_temperature=sampling_temperature,
+            sampling_moves=sampling_moves,
+            seed=seed,
         ),
+        sampling_moves=sampling_moves,
+        sampling_temperature=sampling_temperature,
         progress_every=progress_every,
         progress_callback=lambda completed, total: print(
             f"[phase1:self-play] completed {completed}/{total} games",
@@ -57,6 +73,7 @@ def run_phase_one_bootstrap(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        seed=seed,
         report_path=report_path,
     )
     print(
@@ -73,7 +90,8 @@ def run_phase_one_bootstrap(
     print(
         "[phase1:evaluation] starting "
         f"{evaluation_games} games per seat with policy-mcts vs heuristic-mcts "
-        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth})",
+        f"(simulations={simulations}, candidate_limit={candidate_limit}, rollout_depth={rollout_depth}, "
+        f"seed={seed}, opening_plies={evaluation_opening_plies})",
         flush=True,
     )
     tournament_rows = run_paired_tournament(
@@ -92,6 +110,8 @@ def run_phase_one_bootstrap(
         ),
         games=evaluation_games,
         max_turns=160,
+        base_seed=seed,
+        opening_plies=evaluation_opening_plies,
         progress_callback=lambda seat_name, game_index, total_games: print(
             f"[phase1:evaluation] {seat_name} game {game_index}/{total_games}",
             flush=True,
@@ -125,6 +145,12 @@ def build_phase_one_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--evaluation-games", type=int, default=12)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--evaluation-opening-plies", type=int, default=4)
+    parser.add_argument("--root-dirichlet-alpha", type=float, default=0.3)
+    parser.add_argument("--root-exploration-fraction", type=float, default=0.25)
+    parser.add_argument("--sampling-temperature", type=float, default=1.0)
+    parser.add_argument("--sampling-moves", type=int, default=16)
     parser.add_argument("--progress-every", type=int, default=10)
     return parser
 
@@ -143,6 +169,12 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         evaluation_games=args.evaluation_games,
+        seed=args.seed,
+        evaluation_opening_plies=args.evaluation_opening_plies,
+        root_dirichlet_alpha=args.root_dirichlet_alpha,
+        root_exploration_fraction=args.root_exploration_fraction,
+        sampling_temperature=args.sampling_temperature,
+        sampling_moves=args.sampling_moves,
         progress_every=args.progress_every,
     )
     print(json.dumps(summary, indent=2))

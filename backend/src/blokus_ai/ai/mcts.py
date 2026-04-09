@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -37,6 +38,14 @@ def _softmax(scores: list[float]) -> list[float]:
     return [value / total for value in exponentials]
 
 
+def _sample_dirichlet(alpha: float, size: int, rng: random.Random) -> list[float]:
+    samples = [rng.gammavariate(alpha, 1.0) for _ in range(size)]
+    total = sum(samples)
+    if total <= 0.0:
+        return [1.0 / size] * size
+    return [value / total for value in samples]
+
+
 def _clamp_unit(value: float) -> float:
     return max(-1.0, min(1.0, value))
 
@@ -56,6 +65,69 @@ def _normalize_candidate_entries(entries: list[tuple[Move, float]]) -> list[tupl
         uniform = 1.0 / len(entries)
         return [(move, uniform) for move, _ in entries]
     return [(move, max(0.0, prior) / total) for move, prior in entries]
+
+
+def _apply_root_dirichlet_noise(
+    entries: list[tuple[Move, float]],
+    alpha: float,
+    exploration_fraction: float,
+    rng: random.Random,
+) -> list[tuple[Move, float]]:
+    normalized_entries = _normalize_candidate_entries(entries)
+    if (
+        not normalized_entries
+        or alpha <= 0.0
+        or exploration_fraction <= 0.0
+    ):
+        return normalized_entries
+
+    dirichlet_noise = _sample_dirichlet(alpha, len(normalized_entries), rng)
+    blended_entries = [
+        (
+            move,
+            (1.0 - exploration_fraction) * prior + exploration_fraction * noise,
+        )
+        for (move, prior), noise in zip(normalized_entries, dirichlet_noise)
+    ]
+    return _normalize_candidate_entries(blended_entries)
+
+
+def _sample_action_index_from_visit_counts(
+    visit_counts_by_action: dict[int, int],
+    temperature: float,
+    rng: random.Random,
+) -> Optional[int]:
+    if not visit_counts_by_action:
+        return None
+    if temperature <= 1e-6:
+        return max(
+            visit_counts_by_action.items(),
+            key=lambda item: (item[1], item[0]),
+        )[0]
+
+    weighted_actions = []
+    total_weight = 0.0
+    exponent = 1.0 / temperature
+    for action_index, visits in visit_counts_by_action.items():
+        weight = float(visits) ** exponent
+        if weight <= 0.0:
+            continue
+        weighted_actions.append((action_index, weight))
+        total_weight += weight
+
+    if total_weight <= 0.0:
+        return max(
+            visit_counts_by_action.items(),
+            key=lambda item: (item[1], item[0]),
+        )[0]
+
+    threshold = rng.random() * total_weight
+    cumulative = 0.0
+    for action_index, weight in weighted_actions:
+        cumulative += weight
+        if cumulative >= threshold:
+            return action_index
+    return weighted_actions[-1][0]
 
 
 def _blend_candidate_entries(
@@ -172,15 +244,34 @@ class MCTSAgent:
         candidate_limit: int = 24,
         rollout_depth: int = 8,
         exploration_weight: float = 1.15,
+        seed: Optional[int] = None,
+        root_dirichlet_alpha: float = 0.0,
+        root_exploration_fraction: float = 0.0,
     ) -> None:
         self.simulations = simulations
         self.candidate_limit = candidate_limit
         self.rollout_depth = rollout_depth
         self.exploration_weight = exploration_weight
+        self.seed = seed
+        self.root_dirichlet_alpha = root_dirichlet_alpha
+        self.root_exploration_fraction = root_exploration_fraction
+        self.rng = random.Random(seed)
 
-    def search(self, state: BoardState, top_k: int = 5) -> SearchSummary:
+    def search(
+        self,
+        state: BoardState,
+        top_k: int = 5,
+        add_root_dirichlet_noise: bool = False,
+    ) -> SearchSummary:
         root = SearchNode(state=state, root_color=state.active_color)
         root.candidate_entries = self._candidate_entries(state, root.root_color)
+        if add_root_dirichlet_noise:
+            root.candidate_entries = _apply_root_dirichlet_noise(
+                root.candidate_entries,
+                alpha=self.root_dirichlet_alpha,
+                exploration_fraction=self.root_exploration_fraction,
+                rng=self.rng,
+            )
         if not root.candidate_entries:
             return SearchSummary(
                 suggestions=[],
@@ -260,16 +351,47 @@ class MCTSAgent:
                 "simulations": self.simulations,
                 "expanded_children": len(root.children),
                 "root_value": root_value,
+                "root_dirichlet_noise_applied": add_root_dirichlet_noise,
+                "root_dirichlet_alpha": self.root_dirichlet_alpha if add_root_dirichlet_noise else 0.0,
+                "root_exploration_fraction": (
+                    self.root_exploration_fraction if add_root_dirichlet_noise else 0.0
+                ),
             },
         )
 
     def suggest(self, state: BoardState, top_k: int = 5) -> list[MoveSuggestion]:
         return self.search(state, top_k=top_k).suggestions
 
-    def select_move(self, state: BoardState, top_k: int = 1) -> AgentDecision:
-        summary = self.search(state, top_k=max(top_k, 3))
+    def select_move(
+        self,
+        state: BoardState,
+        top_k: int = 1,
+        sample_from_visit_distribution: bool = False,
+        sampling_temperature: Optional[float] = None,
+        add_root_dirichlet_noise: bool = False,
+    ) -> AgentDecision:
+        summary = self.search(
+            state,
+            top_k=max(top_k, 3),
+            add_root_dirichlet_noise=add_root_dirichlet_noise,
+        )
+        sampled_action_index = None
+        if sample_from_visit_distribution and summary.visit_counts_by_action:
+            sampled_action_index = _sample_action_index_from_visit_counts(
+                summary.visit_counts_by_action,
+                temperature=sampling_temperature or 1.0,
+                rng=self.rng,
+            )
+            if sampled_action_index is not None:
+                summary.chosen_move = decode_action(sampled_action_index, state.active_color)
         if summary.chosen_move is not None:
             summary.diagnostics["selected_action_index"] = encode_action(summary.chosen_move)
+        if sampled_action_index is not None:
+            summary.diagnostics["sampled_action_index"] = sampled_action_index
+            summary.diagnostics["sampled_from_visit_distribution"] = True
+            summary.diagnostics["sampling_temperature"] = sampling_temperature or 1.0
+        else:
+            summary.diagnostics["sampled_from_visit_distribution"] = False
         summary.diagnostics["visit_counts_by_action"] = summary.visit_counts_by_action
         return AgentDecision(
             chosen_move=summary.chosen_move,
@@ -339,12 +461,18 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
         rollout_depth: int = 8,
         exploration_weight: float = 1.15,
         checkpoint_id: Optional[str] = None,
+        seed: Optional[int] = None,
+        root_dirichlet_alpha: float = 0.0,
+        root_exploration_fraction: float = 0.0,
     ) -> None:
         super().__init__(
             simulations=simulations,
             candidate_limit=candidate_limit,
             rollout_depth=rollout_depth,
             exploration_weight=exploration_weight,
+            seed=seed,
+            root_dirichlet_alpha=root_dirichlet_alpha,
+            root_exploration_fraction=root_exploration_fraction,
         )
         self.checkpoint_id = checkpoint_id
         self.loaded_checkpoint = load_policy_value_checkpoint(checkpoint_id)
@@ -358,17 +486,33 @@ class PolicyGuidedMCTSAgent(MCTSAgent):
             candidate_limit=candidate_limit,
             rollout_depth=rollout_depth,
             exploration_weight=exploration_weight,
+            seed=seed,
+            root_dirichlet_alpha=root_dirichlet_alpha,
+            root_exploration_fraction=root_exploration_fraction,
         )
 
-    def search(self, state: BoardState, top_k: int = 5) -> SearchSummary:
+    def search(
+        self,
+        state: BoardState,
+        top_k: int = 5,
+        add_root_dirichlet_noise: bool = False,
+    ) -> SearchSummary:
         if self.loaded_checkpoint is None or state.variant != GameVariant.PAIRED_2:
-            summary = self.fallback_agent.search(state, top_k=top_k)
+            summary = self.fallback_agent.search(
+                state,
+                top_k=top_k,
+                add_root_dirichlet_noise=add_root_dirichlet_noise,
+            )
             summary.diagnostics["requested_agent"] = self.name
             summary.diagnostics["checkpoint_id"] = self.checkpoint_id
             summary.diagnostics["fallback_agent"] = self.fallback_agent.name
             return summary
 
-        summary = super().search(state, top_k=top_k)
+        summary = super().search(
+            state,
+            top_k=top_k,
+            add_root_dirichlet_noise=add_root_dirichlet_noise,
+        )
         summary.diagnostics["checkpoint_id"] = self.loaded_checkpoint.checkpoint_id
         summary.diagnostics["candidate_strategy"] = "hybrid-policy-heuristic"
         summary.diagnostics["heuristic_prior_weight"] = self.heuristic_prior_weight

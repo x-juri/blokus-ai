@@ -18,4 +18,11 @@
 - Rank legal moves with a fast heuristic before expansion.
 - Use progressive widening so each node explores only the best-ranked candidates first.
 - Use a short rollout with heuristic policies for opponents, then finish with a static evaluation when the depth budget ends.
+- For `policy-mcts`, blend heuristic and learned priors at the root candidate stage and blend heuristic and learned leaf values.
 
+## Training-time exploration
+
+- Offline self-play can inject Dirichlet noise into root priors to diversify openings without changing live play behavior.
+- Early self-play moves can be sampled from root visit counts instead of always taking the argmax action.
+- Each self-play game derives its own seed so the same run is reproducible while still producing distinct trajectories.
+- Benchmark evaluation uses seeded diversified opening plies rather than replaying one deterministic initial game.

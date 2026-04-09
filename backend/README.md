@@ -13,4 +13,11 @@ It contains:
   - `uv run blokus-phase1`
   - `uv run blokus-benchmark`
 
+The offline RL path now uses seeded self-play exploration:
+
+- per-game derived seeds for reproducible trace generation
+- root Dirichlet noise during self-play MCTS
+- visit-distribution sampling for early self-play plies
+- seeded diversified openings for evaluation benchmarks
+
 For the full project overview, web app instructions, and architecture notes, see the repository root `README.md`.

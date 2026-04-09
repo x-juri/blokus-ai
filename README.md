@@ -106,8 +106,14 @@ The RL system does not train during human games. Learning is currently offline:
 
 1. Generate paired-2 self-play traces.
 2. Train a policy/value checkpoint from those sparse visit targets.
-3. Evaluate that checkpoint against heuristic MCTS.
+3. Evaluate that checkpoint against heuristic MCTS on a fixed seeded opening suite.
 4. Use the latest checkpoint in `Balanced` and `Strong` play presets.
+
+Offline self-play now adds two AlphaZero-style exploration mechanisms by default:
+- root Dirichlet noise in MCTS priors
+- visit-distribution sampling for the early game instead of always taking the top visit count
+
+These are enabled only for training self-play, not for live play or benchmark evaluation.
 
 Training reports now include separate train and validation policy, value, and total losses. That
 is a more reliable signal than `mean_loss` alone when deciding whether a checkpoint is worth using.
@@ -125,11 +131,20 @@ uv run blokus-self-play \
   --agent-id heuristic-mcts \
   --simulations 8 \
   --candidate-limit 6 \
-  --rollout-depth 1
+  --rollout-depth 1 \
+  --seed 7 \
+  --root-dirichlet-alpha 0.3 \
+  --root-exploration-fraction 0.25 \
+  --sampling-temperature 1.0 \
+  --sampling-moves 16
 ```
 
 This now prints an immediate start banner plus progress every 10 completed self-play games by
 default. You can change that with `--progress-every`.
+
+If you pass `--seed`, self-play derives a reproducible per-game seed and stores it in the JSONL
+records. That gives you distinct but repeatable game traces instead of one deterministic trajectory
+repeated across the whole export.
 
 ### 2. Train a checkpoint
 
@@ -161,11 +176,14 @@ uv run blokus-benchmark \
   --simulations 8 \
   --candidate-limit 6 \
   --rollout-depth 1 \
+  --seed 7 \
+  --opening-plies 4 \
   --json
 ```
 
 The benchmark command now prints an immediate start banner plus evaluation progress for each
-seat-swapped game as it starts.
+seat-swapped game as it starts. It also uses a fixed seeded opening suite so repeated "games"
+are genuinely distinct while still remaining reproducible across runs.
 
 ### 4. Or run the whole Phase 1 bootstrap in one command
 
@@ -174,6 +192,12 @@ uv run blokus-phase1 \
   --checkpoint-id paired2-bootstrap-v1 \
   --games 1000 \
   --self-play-agent-id mobility-heuristic \
+  --seed 7 \
+  --evaluation-opening-plies 4 \
+  --root-dirichlet-alpha 0.3 \
+  --root-exploration-fraction 0.25 \
+  --sampling-temperature 1.0 \
+  --sampling-moves 16 \
   --epochs 3 \
   --evaluation-games 20
 ```
@@ -184,6 +208,12 @@ uv run blokus-phase1 \
 - training start/finish
 - evaluation start banner immediately
 - evaluation progress for each game
+
+The evaluation stage now compares agents on seeded diversified openings by default instead of
+replaying the exact same deterministic start position every time.
+
+The self-play stage now also derives a reproducible per-game seed and uses that seed for root
+noise and early-game visit sampling, so exported traces are both more diverse and repeatable.
 
 For a quick smoke run, start smaller:
 

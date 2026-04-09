@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional, Union
 
 from blokus_ai.ai.agents import build_agent
+from blokus_ai.ai.mcts import MCTSAgent
 from blokus_ai.engine.game import (
     apply_move,
     create_initial_state,
@@ -17,6 +18,12 @@ from blokus_ai.engine.game import (
 )
 from blokus_ai.engine.models import AgentConfig, GameConfig, GameVariant
 from blokus_ai.training.encoding import PASS_ACTION_INDEX, encode_action, legal_action_indices
+
+
+def _derive_game_seed(base_seed: Optional[int], game_index: int) -> Optional[int]:
+    if base_seed is None:
+        return None
+    return base_seed + game_index
 
 
 def _finalize_trace(trace: list[dict], final_state) -> Iterable[dict]:
@@ -36,18 +43,22 @@ def generate_self_play_records(
     output_path: Union[str, Path],
     config: Optional[GameConfig] = None,
     agent_config: Optional[AgentConfig] = None,
+    sampling_moves: Optional[int] = None,
+    sampling_temperature: Optional[float] = None,
     progress_every: int = 10,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Path:
     config = config or GameConfig(variant=GameVariant.PAIRED_2)
     agent_config = agent_config or AgentConfig(agent_id="heuristic-mcts", simulations=64)
-    agent = build_agent(agent_config)
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     effective_progress_every = progress_every if games >= progress_every else 1
 
     with output_file.open("w", encoding="utf-8") as handle:
         for game_index in range(games):
+            game_seed = _derive_game_seed(agent_config.seed, game_index)
+            game_agent_config = agent_config.model_copy(update={"seed": game_seed})
+            agent = build_agent(game_agent_config)
             state = create_initial_state(config)
             trace: list[dict] = []
             ply_index = 0
@@ -58,7 +69,8 @@ def generate_self_play_records(
                         {
                             "game_index": game_index,
                             "ply_index": ply_index,
-                            "agent_id": agent_config.agent_id,
+                            "agent_id": game_agent_config.agent_id,
+                            "game_seed": game_seed,
                             "state": state.model_dump(mode="json"),
                             "perspective_color": state.active_color,
                             "legal_action_indices": [PASS_ACTION_INDEX],
@@ -71,7 +83,24 @@ def generate_self_play_records(
                     ply_index += 1
                     continue
 
-                decision = agent.select_move(state, top_k=3)
+                if isinstance(agent, MCTSAgent):
+                    should_sample = (
+                        sampling_moves is not None
+                        and sampling_moves > 0
+                        and ply_index < sampling_moves
+                    )
+                    decision = agent.select_move(
+                        state,
+                        top_k=3,
+                        sample_from_visit_distribution=should_sample,
+                        sampling_temperature=sampling_temperature,
+                        add_root_dirichlet_noise=bool(
+                            (game_agent_config.root_dirichlet_alpha or 0.0) > 0.0
+                            and (game_agent_config.root_exploration_fraction or 0.0) > 0.0
+                        ),
+                    )
+                else:
+                    decision = agent.select_move(state, top_k=3)
                 if decision.chosen_move is None:
                     break
 
@@ -81,7 +110,8 @@ def generate_self_play_records(
                     {
                         "game_index": game_index,
                         "ply_index": ply_index,
-                        "agent_id": agent_config.agent_id,
+                        "agent_id": game_agent_config.agent_id,
+                        "game_seed": game_seed,
                         "state": state.model_dump(mode="json"),
                         "perspective_color": state.active_color,
                         "legal_action_indices": legal_indices,
@@ -137,6 +167,10 @@ def build_self_play_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-limit", type=int, default=12)
     parser.add_argument("--rollout-depth", type=int, default=3)
     parser.add_argument("--exploration-weight", type=float, default=1.15)
+    parser.add_argument("--root-dirichlet-alpha", type=float, default=0.3)
+    parser.add_argument("--root-exploration-fraction", type=float, default=0.25)
+    parser.add_argument("--sampling-temperature", type=float, default=1.0)
+    parser.add_argument("--sampling-moves", type=int, default=16)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--progress-every", type=int, default=10)
     return parser
@@ -149,7 +183,9 @@ def main() -> None:
         "[self-play] starting "
         f"{args.games} games with {args.agent_id} "
         f"(simulations={args.simulations}, candidate_limit={args.candidate_limit}, "
-        f"rollout_depth={args.rollout_depth})",
+        f"rollout_depth={args.rollout_depth}, root_dirichlet_alpha={args.root_dirichlet_alpha}, "
+        f"root_exploration_fraction={args.root_exploration_fraction}, "
+        f"sampling_temperature={args.sampling_temperature}, sampling_moves={args.sampling_moves})",
         flush=True,
     )
     output_path = generate_self_play_records(
@@ -163,8 +199,14 @@ def main() -> None:
             candidate_limit=args.candidate_limit,
             rollout_depth=args.rollout_depth,
             exploration_weight=args.exploration_weight,
+            root_dirichlet_alpha=args.root_dirichlet_alpha,
+            root_exploration_fraction=args.root_exploration_fraction,
+            sampling_temperature=args.sampling_temperature,
+            sampling_moves=args.sampling_moves,
             seed=args.seed,
         ),
+        sampling_moves=args.sampling_moves,
+        sampling_temperature=args.sampling_temperature,
         progress_every=args.progress_every,
         progress_callback=lambda completed, total: print(
             f"[self-play] completed {completed}/{total} games",
@@ -178,6 +220,10 @@ def main() -> None:
                 "output": str(output_path),
                 "agent_id": args.agent_id,
                 "variant": args.variant,
+                "root_dirichlet_alpha": args.root_dirichlet_alpha,
+                "root_exploration_fraction": args.root_exploration_fraction,
+                "sampling_temperature": args.sampling_temperature,
+                "sampling_moves": args.sampling_moves,
             },
             indent=2,
         )

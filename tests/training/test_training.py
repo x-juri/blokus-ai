@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -67,6 +68,48 @@ def test_self_play_progress_callback_reports_final_batch(tmp_path: Path) -> None
         progress_callback=lambda completed, total: progress_calls.append((completed, total)),
     )
     assert progress_calls == [(2, 3), (3, 3)]
+
+
+def test_self_play_records_include_per_game_seed(tmp_path: Path) -> None:
+    output_path = tmp_path / "seeded-self-play.jsonl"
+    generate_self_play_records(
+        games=2,
+        output_path=output_path,
+        config=GameConfig(variant=GameVariant.PAIRED_2),
+        agent_config=AgentConfig(agent_id="random-legal", seed=41),
+    )
+
+    lines = [line for line in output_path.read_text(encoding="utf-8").splitlines() if line]
+    game_seeds = {
+        (record["game_index"], record["game_seed"])
+        for record in (json.loads(line) for line in lines)
+    }
+    assert game_seeds == {(0, 41), (1, 42)}
+
+
+def test_self_play_records_capture_sampling_diagnostics(tmp_path: Path) -> None:
+    output_path = tmp_path / "sampled-self-play.jsonl"
+    generate_self_play_records(
+        games=1,
+        output_path=output_path,
+        config=GameConfig(variant=GameVariant.PAIRED_2),
+        agent_config=AgentConfig(
+            agent_id="heuristic-mcts",
+            simulations=4,
+            candidate_limit=4,
+            rollout_depth=1,
+            seed=5,
+            root_dirichlet_alpha=0.3,
+            root_exploration_fraction=0.25,
+        ),
+        sampling_moves=2,
+        sampling_temperature=1.0,
+    )
+
+    first_record = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
+    assert first_record["game_seed"] == 5
+    assert first_record["diagnostics"]["sampled_from_visit_distribution"] is True
+    assert first_record["diagnostics"]["root_dirichlet_noise_applied"] is True
 
 
 def test_training_report_includes_validation_diagnostics(tmp_path: Path) -> None:

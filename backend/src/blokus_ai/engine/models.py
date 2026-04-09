@@ -66,6 +66,10 @@ class AgentConfig(BaseModel):
     candidate_limit: Optional[int] = Field(default=None, ge=1, le=256)
     rollout_depth: Optional[int] = Field(default=None, ge=1, le=64)
     exploration_weight: Optional[float] = Field(default=None, gt=0.0, le=4.0)
+    root_dirichlet_alpha: Optional[float] = Field(default=None, gt=0.0, le=10.0)
+    root_exploration_fraction: Optional[float] = Field(default=None, gt=0.0, le=1.0)
+    sampling_temperature: Optional[float] = Field(default=None, gt=0.0, le=4.0)
+    sampling_moves: Optional[int] = Field(default=None, ge=0, le=256)
     seed: Optional[int] = None
 
 
