@@ -20,4 +20,11 @@ The offline RL path now uses seeded self-play exploration:
 - visit-distribution sampling for early self-play plies
 - seeded diversified openings for evaluation benchmarks
 
+Performance-oriented backend behavior:
+
+- generated legal moves are applied through an internal unchecked path inside search and ranking
+- pass checks use early-exit legal move generation
+- MCTS ranking avoids building human-readable rationales until final suggestions
+- loaded policy/value checkpoints are cached and reloaded when their file metadata changes
+
 For the full project overview, web app instructions, and architecture notes, see the repository root `README.md`.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -118,16 +119,20 @@ def save_policy_value_checkpoint(
         },
         path,
     )
+    _load_policy_value_checkpoint_cached.cache_clear()
     return path
 
 
-def load_policy_value_checkpoint(checkpoint_id: Optional[str] = None) -> Optional[LoadedCheckpoint]:
+@lru_cache(maxsize=8)
+def _load_policy_value_checkpoint_cached(
+    path_string: str,
+    mtime_ns: int,
+    size: int,
+) -> LoadedCheckpoint:
     import torch
 
-    path = resolve_checkpoint_path(checkpoint_id)
-    if path is None:
-        return None
-
+    path = Path(path_string)
+    _ = (mtime_ns, size)
     payload = torch.load(path, map_location="cpu")
     model = build_policy_value_network()
     model.load_state_dict(payload["state_dict"])
@@ -137,4 +142,17 @@ def load_policy_value_checkpoint(checkpoint_id: Optional[str] = None) -> Optiona
         path=path,
         metadata=payload.get("metadata", {}),
         model=model,
+    )
+
+
+def load_policy_value_checkpoint(checkpoint_id: Optional[str] = None) -> Optional[LoadedCheckpoint]:
+    path = resolve_checkpoint_path(checkpoint_id)
+    if path is None:
+        return None
+
+    stat = path.stat()
+    return _load_policy_value_checkpoint_cached(
+        str(path.resolve()),
+        stat.st_mtime_ns,
+        stat.st_size,
     )

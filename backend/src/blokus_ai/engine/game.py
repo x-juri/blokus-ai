@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Iterable, Optional
 
 from blokus_ai.engine.models import (
@@ -47,7 +46,20 @@ def create_initial_state(config: Optional[GameConfig] = None) -> BoardState:
 
 
 def clone_state(state: BoardState) -> BoardState:
-    return BoardState.model_validate(deepcopy(state.model_dump()))
+    return BoardState.model_construct(
+        variant=state.variant,
+        active_color=state.active_color,
+        board=[row[:] for row in state.board],
+        remaining_pieces_by_color={
+            color: pieces[:]
+            for color, pieces in state.remaining_pieces_by_color.items()
+        },
+        opened_colors=dict(state.opened_colors),
+        passes_in_row=state.passes_in_row,
+        shared_color=state.shared_color,
+        move_history=state.move_history[:],
+        last_piece_placed_by_color=dict(state.last_piece_placed_by_color),
+    )
 
 
 def next_color(color: PlayerColor) -> PlayerColor:
@@ -110,13 +122,25 @@ def frontier_corners(state: BoardState, color: PlayerColor) -> set[tuple[int, in
 
 def is_legal_move(state: BoardState, move: Move) -> bool:
     if move.is_pass:
-        return move.color == state.active_color and not generate_legal_moves(state, move.color)
+        return move.color == state.active_color and not generate_legal_moves(
+            state,
+            move.color,
+            max_candidates=1,
+        )
     if move.color != state.active_color:
         return False
     if move.piece_id not in state.remaining_pieces_by_color[move.color]:
         return False
 
     cells = placed_cells(move)
+    return _is_legal_placement_cells(state, move.color, cells)
+
+
+def _is_legal_placement_cells(
+    state: BoardState,
+    color: PlayerColor,
+    cells: list[tuple[int, int]],
+) -> bool:
     if not all(in_bounds(row, col) for row, col in cells):
         return False
     if any(state.board[row][col] is not None for row, col in cells):
@@ -127,15 +151,15 @@ def is_legal_move(state: BoardState, move: Move) -> bool:
     for row, col in cells:
         for d_row, d_col in ORTHOGONAL_DIRECTIONS:
             n_row, n_col = row + d_row, col + d_col
-            if in_bounds(n_row, n_col) and state.board[n_row][n_col] == move.color:
+            if in_bounds(n_row, n_col) and state.board[n_row][n_col] == color:
                 return False
         for d_row, d_col in DIAGONAL_DIRECTIONS:
             n_row, n_col = row + d_row, col + d_col
-            if in_bounds(n_row, n_col) and state.board[n_row][n_col] == move.color:
+            if in_bounds(n_row, n_col) and state.board[n_row][n_col] == color:
                 own_corner_contact = True
 
-    if not state.opened_colors[move.color]:
-        return CORNER_BY_COLOR[move.color] in occupied
+    if not state.opened_colors[color]:
+        return CORNER_BY_COLOR[color] in occupied
     return own_corner_contact
 
 
@@ -176,14 +200,18 @@ def generate_legal_moves(
                     if key in seen:
                         continue
                     seen.add(key)
-                    move = Move(
-                        color=target_color,
-                        piece_id=candidate_piece,
-                        anchor_cell=Coordinate(row=anchor_row, col=anchor_col),
-                        rotation=transform.rotation,
-                        reflection=transform.reflection,
-                    )
-                    if is_legal_move(state, move):
+                    cells = [
+                        (anchor_row + row, anchor_col + col)
+                        for row, col in transform.cells
+                    ]
+                    if _is_legal_placement_cells(state, target_color, cells):
+                        move = Move(
+                            color=target_color,
+                            piece_id=candidate_piece,
+                            anchor_cell=Coordinate(row=anchor_row, col=anchor_col),
+                            rotation=transform.rotation,
+                            reflection=transform.reflection,
+                        )
                         legal_moves.append(move)
                         if max_candidates is not None and len(legal_moves) >= max_candidates:
                             return legal_moves
@@ -191,7 +219,7 @@ def generate_legal_moves(
 
 
 def has_legal_move(state: BoardState, color: Optional[PlayerColor] = None) -> bool:
-    return bool(generate_legal_moves(state, color))
+    return bool(generate_legal_moves(state, color, max_candidates=1))
 
 
 def pass_move_for_color(color: PlayerColor) -> Move:
@@ -219,8 +247,12 @@ def apply_pass(state: BoardState, color: Optional[PlayerColor] = None) -> BoardS
     color = color or state.active_color
     if color != state.active_color:
         raise ValueError(f"It is {state.active_color.value}'s turn, not {color.value}'s.")
-    if generate_legal_moves(state, color):
+    if generate_legal_moves(state, color, max_candidates=1):
         raise ValueError(f"{color.value} has legal moves and may not pass.")
+    return _apply_pass_unchecked(state, color)
+
+
+def _apply_pass_unchecked(state: BoardState, color: PlayerColor) -> BoardState:
     new_state = clone_state(state)
     new_state.move_history.append(pass_move_for_color(color))
     new_state.active_color = next_color(color)
@@ -233,6 +265,13 @@ def apply_move(state: BoardState, move: Move) -> BoardState:
         return apply_pass(state, move.color)
     if not is_legal_move(state, move):
         raise ValueError("Illegal move.")
+
+    return apply_legal_move_unchecked(state, move)
+
+
+def apply_legal_move_unchecked(state: BoardState, move: Move) -> BoardState:
+    if move.is_pass:
+        return _apply_pass_unchecked(state, move.color)
 
     new_state = clone_state(state)
     for row, col in placed_cells(move):

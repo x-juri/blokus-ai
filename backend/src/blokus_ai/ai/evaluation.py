@@ -4,6 +4,7 @@ from typing import Optional
 
 from blokus_ai.engine.game import (
     apply_move,
+    apply_legal_move_unchecked,
     color_score,
     frontier_corners,
     generate_legal_moves,
@@ -12,7 +13,7 @@ from blokus_ai.engine.game import (
     owner_group,
     score_margin_for_color,
 )
-from blokus_ai.engine.models import BoardState, Move, MoveSuggestion, PlayerColor, TURN_ORDER
+from blokus_ai.engine.models import BoardState, Move, MoveSuggestion, PlayerColor
 from blokus_ai.engine.pieces import PIECE_SIZES
 
 
@@ -55,6 +56,10 @@ def describe_move(state: BoardState, move: Move) -> str:
     if move.is_pass:
         return f"{move.color.value} has no legal placements and must pass."
     projected = apply_move(state, move)
+    return describe_projected_move(state, move, projected)
+
+
+def describe_projected_move(state: BoardState, move: Move, projected: BoardState) -> str:
     size = PIECE_SIZES[move.piece_id]
     frontier = frontier_count(projected, move.color)
     margin = group_score_margin(projected, move.color)
@@ -66,6 +71,15 @@ def describe_move(state: BoardState, move: Move) -> str:
 
 def heuristic_move_score(state: BoardState, move: Move, root_color: PlayerColor) -> float:
     projected = apply_move(state, move)
+    return heuristic_projected_move_score(state, move, root_color, projected)
+
+
+def heuristic_projected_move_score(
+    state: BoardState,
+    move: Move,
+    root_color: PlayerColor,
+    projected: BoardState,
+) -> float:
     piece_size = PIECE_SIZES[move.piece_id]
     same_group = owner_group(state, move.color) == owner_group(state, root_color)
     direction = 1.0 if same_group else -1.0
@@ -83,23 +97,28 @@ def rank_moves(
     color: PlayerColor,
     root_color: PlayerColor,
     top_k: Optional[int] = None,
+    include_rationales: bool = True,
 ) -> list[MoveSuggestion]:
-    ranked = [
-        MoveSuggestion(
-            move=move,
-            score=heuristic_move_score(state, move, root_color),
-            rationale=describe_move(state, move),
-            visits=0,
+    ranked = []
+    for move in generate_legal_moves(state, color):
+        projected = apply_legal_move_unchecked(state, move)
+        ranked.append(
+            MoveSuggestion(
+                move=move,
+                score=heuristic_projected_move_score(state, move, root_color, projected),
+                rationale=describe_projected_move(state, move, projected)
+                if include_rationales
+                else "",
+                visits=0,
+            )
         )
-        for move in generate_legal_moves(state, color)
-    ]
     if not ranked and color == state.active_color:
         pass_move = pass_move_for_color(color)
         ranked = [
             MoveSuggestion(
                 move=pass_move,
                 score=heuristic_value(state, root_color) - 1.0,
-                rationale=describe_move(state, pass_move),
+                rationale=describe_move(state, pass_move) if include_rationales else "",
                 visits=0,
             )
         ]

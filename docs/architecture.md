@@ -19,6 +19,9 @@
 - Use progressive widening so each node explores only the best-ranked candidates first.
 - Use a short rollout with heuristic policies for opponents, then finish with a static evaluation when the depth budget ends.
 - For `policy-mcts`, blend heuristic and learned priors at the root candidate stage and blend heuristic and learned leaf values.
+- Search and ranking use an internal unchecked apply path only after a move has already been generated as legal.
+- Candidate ranking skips rationale generation; rationales are produced only for returned suggestions.
+- Policy/value checkpoints are cached per process and invalidated when checkpoint file metadata changes.
 
 ## Training-time exploration
 

@@ -56,6 +56,17 @@ def test_checkpoint_save_and_load_round_trip() -> None:
     assert loaded.metadata["source"] == "test"
 
 
+def test_checkpoint_load_is_cached_between_calls() -> None:
+    if sys.version_info < (3, 12):
+        pytest.skip("Torch-backed checkpoint tests require the project Python 3.12+ environment.")
+    checkpoint_id = "unit-test-policy-cache"
+    model = build_policy_value_network()
+    save_policy_value_checkpoint(model, checkpoint_id, metadata={"source": "cache-test"})
+    loaded_once = load_policy_value_checkpoint(checkpoint_id)
+    loaded_twice = load_policy_value_checkpoint(checkpoint_id)
+    assert loaded_once is loaded_twice
+
+
 def test_self_play_progress_callback_reports_final_batch(tmp_path: Path) -> None:
     progress_calls: list[tuple[int, int]] = []
     output_path = tmp_path / "smoke.jsonl"

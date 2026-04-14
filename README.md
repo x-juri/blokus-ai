@@ -118,6 +118,13 @@ These are enabled only for training self-play, not for live play or benchmark ev
 Training reports now include separate train and validation policy, value, and total losses. That
 is a more reliable signal than `mean_loss` alone when deciding whether a checkpoint is worth using.
 
+### Performance notes
+
+- Legal move generation avoids constructing rejected move objects and stops early for pass checks.
+- Internal search uses a fast unchecked apply path only after moves have already been generated as legal.
+- MCTS candidate ranking skips full rationale generation until the final suggestions are returned.
+- Policy/value checkpoints are cached in the backend process and automatically reload when the file changes.
+
 ## Phase 1 training workflow
 
 Run these commands from `backend/`:

@@ -13,7 +13,7 @@ from blokus_ai.ai.evaluation import (
 from blokus_ai.ai.types import AgentDecision
 from blokus_ai.engine.game import (
     MAX_ABS_TEAM_MARGIN,
-    apply_move,
+    apply_legal_move_unchecked,
     is_terminal,
     normalized_score_margin_for_color,
 )
@@ -295,7 +295,7 @@ class MCTSAgent:
                 if node.can_expand(base=4):
                     move, prior = node.candidate_entries[node.expanded_count]
                     node.expanded_count += 1
-                    child_state = apply_move(node.state, move)
+                    child_state = apply_legal_move_unchecked(node.state, move)
                     child = SearchNode(
                         state=child_state,
                         root_color=root.root_color,
@@ -412,6 +412,7 @@ class MCTSAgent:
             state.active_color,
             root_color,
             top_k=self.candidate_limit,
+            include_rationales=False,
         )
         priors = _softmax([suggestion.score for suggestion in ranked])
         return [
@@ -441,7 +442,7 @@ class MCTSAgent:
             candidates = self._candidate_entries(rollout_state, root_color)
             if not candidates:
                 break
-            rollout_state = apply_move(rollout_state, candidates[0][0])
+            rollout_state = apply_legal_move_unchecked(rollout_state, candidates[0][0])
         return self._evaluate_leaf(rollout_state, root_color)
 
     def _evaluate_leaf(self, state: BoardState, root_color: PlayerColor) -> float:
